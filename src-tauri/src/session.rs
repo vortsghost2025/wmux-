@@ -39,24 +39,23 @@ pub struct AgentResumeInfo {
 fn session_dir() -> PathBuf {
     // Windows: C:\Users\<user>\AppData\Local\wmux
     // Linux:   ~/.local/share/wmux
-    let base = if cfg!(target_os = "windows") {
+    if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from("."))
+            .join("wmux")
     } else {
         std::env::var("XDG_DATA_HOME")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                dirs_fallback().join(".local").join("share")
+                std::env::var("HOME")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(".local")
+                    .join("share")
             })
-    };
-    base.join("wmux")
-}
-
-fn dirs_fallback() -> PathBuf {
-    std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
+            .join("wmux")
+    }
 }
 
 fn session_path() -> PathBuf {
@@ -66,7 +65,7 @@ fn session_path() -> PathBuf {
 #[tauri::command]
 pub fn save_session() -> Result<String, String> {
     // Gather current state from workspace manager
-    let workspaces = crate::workspace::list_workspaces()?;
+    let workspaces = crate::workspace::list_workspaces_internal();
 
     let snapshot = SessionSnapshot {
         version: 1,

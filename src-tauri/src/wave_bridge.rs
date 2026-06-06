@@ -76,7 +76,7 @@ pub fn wave_ask_all(query: String, lines: Option<usize>) -> Result<Vec<TerminalC
 
     // Phase 2: capture scrollback from all active PTYs
     // For now return the workspace list as terminal captures
-    let workspaces = crate::workspace::list_workspaces()?;
+    let workspaces = crate::workspace::list_workspaces_internal();
 
     let captures: Vec<TerminalCapture> = workspaces
         .iter()

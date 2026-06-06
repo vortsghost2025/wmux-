@@ -78,12 +78,17 @@ pub fn create_workspace(name: String, directory: String) -> Result<Workspace, St
     Ok(ws)
 }
 
-#[tauri::command]
-pub fn list_workspaces() -> Result<Vec<Workspace>, String> {
-    let workspaces = WORKSPACES.lock().map_err(|e| e.to_string())?;
+/// Internal: list workspaces without Tauri command wrapper
+pub fn list_workspaces_internal() -> Vec<Workspace> {
+    let workspaces = WORKSPACES.lock().unwrap_or_else(|e| e.into_inner());
     let mut list: Vec<Workspace> = workspaces.values().cloned().collect();
     list.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(list)
+    list
+}
+
+#[tauri::command]
+pub fn list_workspaces() -> Result<Vec<Workspace>, String> {
+    Ok(list_workspaces_internal())
 }
 
 #[tauri::command]
