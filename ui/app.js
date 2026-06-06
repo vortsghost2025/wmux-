@@ -184,7 +184,11 @@ function promptNewWorkspace() {
 }
 
 function splitPane(direction) {
-  showToast('Split', `Split ${direction} (Phase 2 — needs xterm.js)`, 'normal');
+  if (direction === 'right' && window.splitRight) {
+    window.splitRight();
+  } else if (direction === 'down' && window.splitDown) {
+    window.splitDown();
+  }
 }
 
 function toggleSidebar() {
