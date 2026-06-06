@@ -2,6 +2,7 @@
 // Runs in WebView2 via window.__TAURI__
 
 // ===== Tauri bridge =====
+;(function() {
 const TAURI = window.__TAURI__;
 const isTauri = !!TAURI;
 
@@ -511,3 +512,5 @@ window.workspaceContextMenu = workspaceContextMenu;
 window.executePaletteCommand = executePaletteCommand;
 window.toggleCommandPalette = toggleCommandPalette;
 window.promptNewWorkspace = promptNewWorkspace;
+
+})();

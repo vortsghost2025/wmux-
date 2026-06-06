@@ -1,6 +1,10 @@
 // terminal.js — xterm.js terminal manager
 // Simplified: starts with ONE full terminal, split with Ctrl+D
+// Bridges to Tauri PTY backend via:
+// Events (Rust → JS): pty_data { ptyId, data } | pty_exit { ptyId, code }
+// Commands (JS → Rust): create_pty, write_pty, resize_pty, close_pty
 
+;(function() {
 const TAURI = window.__TAURI__;
 const isTauri = !!TAURI;
 const XTerm = window.Terminal;
@@ -377,3 +381,5 @@ window.splitRight = splitRight;
 window.splitDown = splitDown;
 window.createTerminal = createTerminal;
 window.terminals = terminals;
+
+})();
