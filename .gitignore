@@ -1,0 +1,28 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.exe
+*.msi
+*.dmg
+
+# Environment
+.env
+.env.local
+
+# PTY debug
+*.pty.log
