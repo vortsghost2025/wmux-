@@ -172,11 +172,13 @@ function splitRight() {
         <span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
         <span>S:\\wmux-</span>
       </div>
+      <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
     </div>
     <div class="xterm-container" id="${xtermId}"></div>
   `;
 
-  // Add click-to-focus
+  // Wire close button + click-to-focus
+  pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
   pane.addEventListener('mousedown', () => {
     document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
     pane.classList.add('focused');
@@ -220,6 +222,7 @@ function splitDown() {
           <span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
           <span>S:\\wmux-</span>
         </div>
+      <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
       </div>
       <div class="xterm-container" id="${xtermId}"></div>
     </div>
@@ -317,9 +320,90 @@ function setupSingleResizeV(handle) {
   });
 }
 
+// ===== Close pane =====
+
+function closePane(paneElement) {
+  if (!paneElement) return;
+
+  // Find and kill the PTY
+  const xtermContainer = paneElement.querySelector('.xterm-container');
+  if (xtermContainer && terminals[xtermContainer.id]) {
+    const entry = terminals[xtermContainer.id];
+    if (entry.ptyId && isTauri) {
+      TAURI.core.invoke('close_pty', { ptyId: entry.ptyId }).catch(() => {});
+    }
+    entry.ro?.disconnect();
+    entry.term.dispose();
+    delete terminals[xtermContainer.id];
+  }
+
+  const parent = paneElement.parentElement; // .pane-row or .pane-grid
+  if (!parent) return;
+
+  // Don't close the last pane — just clear and respawn
+  const allPanes = document.querySelectorAll('.pane');
+  if (allPanes.length <= 1) {
+    // Respawn fresh terminal in same pane
+    if (xtermContainer) {
+      xtermContainer.innerHTML = '';
+      setTimeout(() => createTerminal(xtermContainer.id, 'S:\\\\wmux-'), 50);
+    }
+    return;
+  }
+
+  // Remove adjacent resize handle
+  const prevSib = paneElement.previousElementSibling;
+  const nextSib = paneElement.nextElementSibling;
+  if (prevSib && prevSib.classList.contains('resize-h')) {
+    prevSib.remove();
+  } else if (nextSib && nextSib.classList.contains('resize-h')) {
+    nextSib.remove();
+  }
+
+  paneElement.remove();
+
+  // If the row is now empty, remove the row and its resize-v
+  if (parent.classList.contains('pane-row') && parent.querySelectorAll('.pane').length === 0) {
+    const prevRow = parent.previousElementSibling;
+    if (prevRow && prevRow.classList.contains('resize-v')) {
+      prevRow.remove();
+    }
+    const nextRow = parent.nextElementSibling;
+    if (nextRow && nextRow.classList.contains('resize-v')) {
+      nextRow.remove();
+    }
+    parent.remove();
+  }
+
+  // Refit remaining terminals
+  setTimeout(() => {
+    Object.values(terminals).forEach(t => { try { t.fitAddon.fit(); } catch(e) {} });
+  }, 100);
+
+  // Focus next available pane
+  const remaining = document.querySelector('.pane');
+  if (remaining) {
+    document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
+    remaining.classList.add('focused');
+    const entry = terminals[remaining.querySelector('.xterm-container')?.id];
+    if (entry) entry.term.focus();
+  }
+}
+
+function closeFocusedPane() {
+  const focused = document.querySelector('.pane.focused') || document.querySelector('.pane');
+  if (focused) closePane(focused);
+}
+
 // ===== Keyboard shortcuts =====
 
 document.addEventListener('keydown', (e) => {
+  // Ctrl+W — close focused pane
+  if (e.ctrlKey && !e.shiftKey && (e.key === 'w' || e.key === 'W') && !e.shiftKey) {
+    e.preventDefault();
+    closeFocusedPane();
+    return;
+  }
   // Ctrl+D — split right
   if (e.ctrlKey && !e.shiftKey && e.key === 'd') {
     e.preventDefault();
@@ -380,6 +464,8 @@ window.addEventListener('DOMContentLoaded', () => {
 window.splitRight = splitRight;
 window.splitDown = splitDown;
 window.createTerminal = createTerminal;
+window.closeFocusedPane = closeFocusedPane;
+window.closePane = closePane;
 window.terminals = terminals;
 
 })();

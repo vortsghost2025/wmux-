@@ -45,6 +45,7 @@ async function createWorkspace(name, directory) {
     renderSidebar();
     switchToWorkspace(ws.id);
     showToast('Workspace created', name, 'normal');
+    scheduleAutoSave();
   } catch (e) {
     console.error('create_workspace failed:', e);
   }
@@ -71,6 +72,7 @@ async function renameWorkspace(workspaceId) {
   if (newName && newName !== ws.name) {
     await invoke('rename_workspace', { workspaceId, newName });
     await loadWorkspaces();
+    scheduleAutoSave();
   }
 }
 
@@ -82,6 +84,7 @@ async function removeWorkspace(workspaceId) {
     state.activeWorkspaceId = state.workspaces[0]?.id || null;
   }
   renderSidebar();
+  scheduleAutoSave();
 }
 
 // ===== Notification System =====
@@ -472,6 +475,46 @@ function mockInvoke(cmd, args) {
 
 // ===== Init =====
 
+// ===== Session Persistence =====
+
+async function saveSessionNow() {
+  try {
+    const result = await invoke('save_session');
+    console.log('[wmux] Session saved:', result);
+  } catch (e) {
+    console.error('[wmux] save_session failed:', e);
+  }
+}
+
+async function restoreSession() {
+  try {
+    const session = await invoke('load_session');
+    if (session && session.workspaces && session.workspaces.length > 0) {
+      console.log('[wmux] Restoring session:', session.workspaces.length, 'workspaces');
+      for (const ws of session.workspaces) {
+        // Only create if it doesn't already exist
+        const existing = state.workspaces.find(w => w.name === ws.name);
+        if (!existing) {
+          await invoke('create_workspace', { name: ws.name, directory: ws.directory });
+        }
+      }
+      await loadWorkspaces();
+      showToast('Session restored', `${session.workspaces.length} workspaces`, 'normal');
+    }
+  } catch (e) {
+    console.error('[wmux] load_session failed:', e);
+  }
+}
+
+// Auto-save after workspace mutations (debounced)
+let saveTimer = null;
+function scheduleAutoSave() {
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSessionNow, 2000); // Save 2s after last change
+}
+
+// ===== Init =====
+
 window.addEventListener('DOMContentLoaded', async () => {
   console.log('[wmux] Initializing...', isTauri ? 'Tauri mode' : 'Browser dev mode');
 
@@ -482,6 +525,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   } catch (e) {
     console.warn('[wmux] Backend not available, using mocks');
   }
+
+  // Restore previous session first
+  await restoreSession();
 
   // Load workspaces
   await loadWorkspaces();
@@ -496,15 +542,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   renderPanes();
   renderStatusBar();
 
-  // Show initial toast in browser dev mode
-  if (!isTauri) {
-    setTimeout(() => {
-      showToast('GLM-5.1 waiting', 'kucoin-lane: test results ready — DEX module findings need direction', 'high', 'glm');
-    }, 1500);
-  }
-
   console.log('[wmux] Ready. Workspaces:', state.workspaces.length);
 });
+
+// Save session on window close
+window.addEventListener('beforeunload', () => { saveSessionNow(); });
 
 // Export for inline onclick handlers
 window.switchToWorkspace = switchToWorkspace;
