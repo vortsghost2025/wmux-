@@ -1,5 +1,10 @@
 // Wave AI Bridge — connects wmux to your existing Wave AI shell
 //
+// PORT: 51987 — chosen to avoid collisions with:
+//   - Docker containers (32768-32772, 4000, 54527, 80, 443)
+//   - Common dev ports (3000, 8000, 8080, 5000, 5001)
+//   - All standard service ports
+//
 // Three modes:
 // 1. Filesystem bridge: watch a dir for request/response JSON files
 // 2. CLI bridge: wmux commands Wave AI can call
@@ -49,7 +54,7 @@ pub fn wave_bridge_status() -> Result<WaveBridgeStatus, String> {
     Ok(WaveBridgeStatus {
         mode: "disabled".to_string(),
         bridge_dir: None,
-        api_port: None,
+            api_port: Some(51987),  // High port to avoid collisions with existing services
         connected: false,
     })
 }

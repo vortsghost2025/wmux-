@@ -191,7 +191,12 @@ function toggleSidebar() {
   state.sidebarVisible = !state.sidebarVisible;
   const sidebar = document.querySelector('.sidebar');
   if (sidebar) sidebar.style.display = state.sidebarVisible ? 'flex' : 'none';
+  // Show a brief toast so you know what happened
+  if (!state.sidebarVisible) {
+    showToast('Sidebar hidden', 'Press Ctrl+B to show it again', 'low');
+  }
 }
+window.toggleSidebar = toggleSidebar;
 
 async function waveAskAll() {
   const query = prompt('Ask all terminals:');
