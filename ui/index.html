@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>wmux</title>
+<!-- xterm.js — terminal emulator -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
 <style>
   :root {
     --bg-primary: #0d1117;
@@ -166,6 +172,14 @@
   .browser-content { flex:1; background:#1a1a2e; display:flex; align-items:center; justify-content:center; color:var(--text-muted); font-size:13px; }
   .browser-content .mock-page { text-align:center; padding:40px; }
   .browser-content .mock-page h2 { color:var(--accent); margin-bottom:8px; font-size:18px; }
+
+  /* xterm.js overrides */
+  .xterm-container { flex:1; overflow:hidden; }
+  .xterm-container .xterm { height:100%; }
+  .xterm-container .xterm-viewport { overflow-y:auto !important; }
+  .xterm-container .xterm-viewport::-webkit-scrollbar { width:6px; }
+  .xterm-container .xterm-viewport::-webkit-scrollbar-track { background:transparent; }
+  .xterm-container .xterm-viewport::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
 </style>
 </head>
 <body>
@@ -343,9 +357,6 @@ write a response → agent reads the response.</span>
 
 <script src="app.js"></script>
 <script src="panes.js"></script>
-<script>
-  // Scroll terminals to bottom
-  document.querySelectorAll('.terminal').forEach(t => t.scrollTop = t.scrollHeight);
-</script>
+<script src="terminal.js"></script>
 </body>
 </html>
