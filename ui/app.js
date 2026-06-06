@@ -222,7 +222,7 @@ async function waveAskAll() {
 
 document.addEventListener('keydown', (e) => {
   // Ctrl+Shift+P — Command palette
-  if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
     e.preventDefault();
     toggleCommandPalette();
     return;
@@ -233,7 +233,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Ctrl+Shift+U — Jump to unread
-  if (e.ctrlKey && e.shiftKey && e.key === 'U') {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'U' || e.key === 'u')) {
     e.preventDefault();
     jumpToUnread();
     return;
@@ -260,7 +260,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Ctrl+Shift+W — Close workspace
-  if (e.ctrlKey && e.shiftKey && e.key === 'W') {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'W' || e.key === 'w')) {
     e.preventDefault();
     if (state.activeWorkspaceId) removeWorkspace(state.activeWorkspaceId);
     return;
@@ -272,7 +272,7 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   // Ctrl+Shift+D — Split down
-  if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+  if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
     e.preventDefault();
     splitPane('down');
     return;
