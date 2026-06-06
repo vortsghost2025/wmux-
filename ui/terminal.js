@@ -168,23 +168,23 @@ function splitRight() {
   pane.id = paneId;
   pane.innerHTML = `
     <div class="pane-header">
-      <div class="pane-header-left">
-        <span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
-        <span>S:\\wmux-</span>
-      </div>
-      <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
-    </div>
-    <div class="xterm-container" id="${xtermId}"></div>
-  `;
+<div class="pane-header-left">
+<span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
+<span>S:\\wmux-</span>
+</div>
+<button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
+</div>
+      <div class="xterm-container" id="${xtermId}"></div>
+    `;
 
-  // Wire close button + click-to-focus
-  pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
-  pane.addEventListener('mousedown', () => {
-    document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
-    pane.classList.add('focused');
-  });
+pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
+pane.addEventListener('mousedown', () => {
+document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
+pane.classList.add('focused');
+if (window.PaneManager) window.PaneManager.focusedId = pane.id;
+});
 
-  row.appendChild(handle);
+        row.appendChild(handle);
   row.appendChild(pane);
 
   // Setup resize handle
@@ -216,20 +216,28 @@ function splitDown() {
   const newRow = document.createElement('div');
   newRow.className = 'pane-row';
   newRow.innerHTML = `
-    <div class="pane" id="${paneId}">
-      <div class="pane-header">
-        <div class="pane-header-left">
-          <span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
-          <span>S:\\wmux-</span>
-        </div>
-      <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
+<div class="pane" id="${paneId}">
+<div class="pane-header">
+<div class="pane-header-left">
+<span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
+<span>S:\\wmux-</span>
+</div>
+<button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
+</div>
+<div class="xterm-container" id="${xtermId}"></div>
+</div>
       </div>
-      <div class="xterm-container" id="${xtermId}"></div>
-    </div>
-  `;
+    `;
 
-  grid.appendChild(handle);
-  grid.appendChild(newRow);
+    const newPane = newRow.querySelector('.pane');
+    newPane.addEventListener('mousedown', () => {
+      document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
+      newPane.classList.add('focused');
+      if (window.PaneManager) window.PaneManager.focusedId = newPane.id;
+    });
+
+    grid.appendChild(handle);
+    grid.appendChild(newRow);
 
   setupSingleResizeV(handle);
 
@@ -416,6 +424,14 @@ document.addEventListener('keydown', (e) => {
     splitDown();
     return;
   }
+  // Ctrl+W — close focused pane
+  if (e.ctrlKey && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
+    e.preventDefault();
+    const focused = document.querySelector('.pane.focused');
+    if (focused) window.closePane(focused.id);
+    return;
+  }
+
   // Alt+Arrow — focus pane
   if (e.altKey && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
     e.preventDefault();
@@ -457,15 +473,36 @@ window.addEventListener('DOMContentLoaded', () => {
   setupPtyListener();
 
   // Create the main terminal — ONE big terminal filling the window
+  // Close button delegation
+  document.querySelector('.pane-grid').addEventListener('click', (e) => {
+    if (e.target.classList.contains('pane-close')) {
+      const pane = e.target.closest('.pane');
+      if (pane) window.closePane(pane.id);
+    }
+  });
+
   setTimeout(() => createTerminal('xterm-1', 'S:\\wmux-'), 50);
 });
 
 // Exports for app.js
+function closeTerminal(containerId) {
+    const entry = terminals[containerId];
+    if (!entry) return;
+    if (entry.ptyId && isTauri) {
+        TAURI.core.invoke('close_pty', { ptyId: entry.ptyId }).catch(() => {});
+    }
+    try { entry.ro.disconnect(); } catch(e) {}
+    try { entry.fitAddon.dispose(); } catch(e) {}
+    try { entry.term.dispose(); } catch(e) {}
+    delete terminals[containerId];
+}
+
 window.splitRight = splitRight;
 window.splitDown = splitDown;
 window.createTerminal = createTerminal;
 window.closeFocusedPane = closeFocusedPane;
 window.closePane = closePane;
+window.closeTerminal = closeTerminal;
 window.terminals = terminals;
 
 })();

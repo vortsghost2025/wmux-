@@ -33,23 +33,24 @@ const PaneManager = {
         const nextFlex = parseFloat(getComputedStyle(nextPane).flexGrow) || 1;
         const totalFlex = prevFlex + nextFlex;
 
-        handle.style.background = 'var(--accent)';
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
+handle.classList.add('active');
+document.body.style.cursor = 'col-resize';
+document.body.style.userSelect = 'none';
 
-        const onMove = (e) => {
-          const dx = e.clientX - startX;
-          const dRatio = (dx / rowWidth) * totalFlex;
-          const newPrev = Math.max(0.15, prevFlex + dRatio);
-          const newNext = Math.max(0.15, nextFlex - dRatio);
-          prevPane.style.flex = newPrev;
-          nextPane.style.flex = newNext;
-        };
+const onMove = (e) => {
+const dx = e.clientX - startX;
+const dRatio = (dx / rowWidth) * totalFlex;
+const newPrev = Math.max(0.15, prevFlex + dRatio);
+const newNext = Math.max(0.15, nextFlex - dRatio);
+prevPane.style.flex = newPrev;
+nextPane.style.flex = newNext;
+if (window.terminals) Object.values(window.terminals).forEach(t => { try { t.fitAddon.fit(); } catch(e) {} });
+};
 
-        const onUp = () => {
-          handle.style.background = '';
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
+const onUp = () => {
+handle.classList.remove('active');
+document.body.style.cursor = '';
+document.body.style.userSelect = '';
           document.removeEventListener('mousemove', onMove);
           document.removeEventListener('mouseup', onUp);
         };
@@ -74,26 +75,27 @@ const PaneManager = {
         const nextFlex = parseFloat(getComputedStyle(nextRow).flexGrow) || 1;
         const totalFlex = prevFlex + nextFlex;
 
-        handle.style.background = 'var(--accent)';
-        document.body.style.cursor = 'row-resize';
-        document.body.style.userSelect = 'none';
+ handle.classList.add('active');
+ document.body.style.cursor = 'row-resize';
+ document.body.style.userSelect = 'none';
 
-        const onMove = (e) => {
-          const dy = e.clientY - startY;
-          const dRatio = (dy / gridHeight) * totalFlex;
-          const newPrev = Math.max(0.15, prevFlex + dRatio);
-          const newNext = Math.max(0.15, nextFlex - dRatio);
-          prevRow.style.flex = newPrev;
-          nextRow.style.flex = newNext;
-        };
+ const onMove = (e) => {
+ const dy = e.clientY - startY;
+ const dRatio = (dy / gridHeight) * totalFlex;
+ const newPrev = Math.max(0.15, prevFlex + dRatio);
+ const newNext = Math.max(0.15, nextFlex - dRatio);
+ prevRow.style.flex = newPrev;
+ nextRow.style.flex = newNext;
+ if (window.terminals) Object.values(window.terminals).forEach(t => { try { t.fitAddon.fit(); } catch(e) {} });
+ };
 
-        const onUp = () => {
-          handle.style.background = '';
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          document.removeEventListener('mousemove', onMove);
-          document.removeEventListener('mouseup', onUp);
-        };
+ const onUp = () => {
+ handle.classList.remove('active');
+ document.body.style.cursor = '';
+ document.body.style.userSelect = '';
+ document.removeEventListener('mousemove', onMove);
+ document.removeEventListener('mouseup', onUp);
+ };
 
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onUp);
@@ -114,6 +116,83 @@ const PaneManager = {
   },
 
   // ===== Focus navigation =====
+
+  closePane(paneId) {
+    const pane = document.getElementById(paneId);
+    if (!pane) return;
+
+    const xtermEl = pane.querySelector('.xterm-container');
+    if (xtermEl && window.closeTerminal) {
+      window.closeTerminal(xtermEl.id);
+    }
+
+    const row = pane.parentElement;
+
+    const prevH = pane.previousElementSibling;
+    const nextH = pane.nextElementSibling;
+    if (prevH && prevH.classList.contains('resize-h')) {
+      prevH.remove();
+    } else if (nextH && nextH.classList.contains('resize-h')) {
+      nextH.remove();
+    }
+    pane.remove();
+
+    if (row) {
+      const remainingPanes = row.querySelectorAll('.pane');
+      if (remainingPanes.length > 0) {
+        remainingPanes.forEach(p => p.style.flex = '1');
+      } else {
+        const grid = row.parentElement;
+        const prevV = row.previousElementSibling;
+        const nextV = row.nextElementSibling;
+        if (prevV && prevV.classList.contains('resize-v')) {
+          prevV.remove();
+        } else if (nextV && nextV.classList.contains('resize-v')) {
+          nextV.remove();
+        }
+        row.remove();
+
+        if (grid) {
+          const remainingRows = grid.querySelectorAll('.pane-row');
+          if (remainingRows.length > 0) {
+            remainingRows.forEach(r => r.style.flex = '1');
+          }
+        }
+      }
+    }
+
+    const grid = document.querySelector('.pane-grid');
+    if (!grid || !grid.querySelector('.pane')) {
+      if (window.splitRight) {
+        window.splitRight();
+        const newPane = grid?.querySelector('.pane');
+        if (newPane) {
+          this.focusedId = newPane.id;
+          newPane.classList.add('focused');
+        }
+      }
+      return;
+    }
+
+    if (this.focusedId === paneId || !document.querySelector('.pane.focused')) {
+      const first = grid.querySelector('.pane');
+      if (first) {
+        document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
+        first.classList.add('focused');
+        this.focusedId = first.id;
+        const firstXterm = first.querySelector('.xterm-container');
+        if (firstXterm && window.terminals && window.terminals[firstXterm.id]) {
+          window.terminals[firstXterm.id].term.focus();
+        }
+      }
+    }
+
+    if (window.terminals) {
+      Object.values(window.terminals).forEach(t => {
+        try { t.fitAddon.fit(); } catch(e) {}
+      });
+    }
+  },
 
   focusDirection(dir) {
     const focused = document.querySelector('.pane.focused') || document.querySelector('.pane');
@@ -158,14 +237,7 @@ const PaneManager = {
   },
 };
 
-// Arrow key pane focus: Alt+Arrow
-document.addEventListener('keydown', (e) => {
-  if (e.altKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-    e.preventDefault();
-    const dir = e.key.replace('Arrow', '').toLowerCase();
-    PaneManager.focusDirection(dir);
-  }
-});
+window.closePane = (paneId) => PaneManager.closePane(paneId);
 
 // Init on load
 window.addEventListener('DOMContentLoaded', () => {

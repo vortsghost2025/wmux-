@@ -91,6 +91,9 @@
   .agent-badge.term1 { background:rgba(188,140,255,0.15); color:var(--purple); }
   .agent-badge.term2 { background:rgba(63,185,80,0.15); color:var(--green); }
   .agent-badge.term3 { background:rgba(88,166,255,0.15); color:var(--accent); }
+.pane-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; padding:0 4px; line-height:1; opacity:0; transition:opacity 0.15s; }
+.pane:hover .pane-close { opacity:1; }
+.pane-close:hover { color:var(--red,#f85149); }
 
   .pane-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:13px; padding:2px 6px; border-radius:4px; transition:all 0.15s; }
   .pane-close-btn:hover { background:var(--red); color:#fff; }
@@ -167,10 +170,10 @@
           <div class="pane-header">
             <div class="pane-header-left">
               <span class="agent-badge term1">Terminal 1</span>
-              <span id="pane-1-cwd">S:\wmux-</span>
-            </div>
-            <button class="pane-close-btn" title="Close (Ctrl+W)" onclick="if(window.closeFocusedPane)window.closeFocusedPane()">✕</button>
-          </div>
+<span id="pane-1-cwd">S:\wmux-</span>
+</div>
+<button class="pane-close-btn" title="Close (Ctrl+W)" onclick="if(window.closeFocusedPane)window.closeFocusedPane()">✕</button>
+</div>
           <div class="xterm-container" id="xterm-1"></div>
         </div>
       </div>
