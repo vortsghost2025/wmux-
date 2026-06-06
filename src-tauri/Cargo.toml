@@ -31,7 +31,7 @@ once_cell = "1"
 # Phase 2: regex = "1"
 
 # PTY support (conpty on Windows, Unix PTY on Linux/Mac)
-# portable-pty = "0.8"
+portable-pty = "0.8"
 
 # Filesystem watcher for Wave bridge
 # notify = "7"

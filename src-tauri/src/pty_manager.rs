@@ -1,13 +1,10 @@
-// PTY Manager — spawns and manages pseudo-terminals
-// Uses conpty on Windows, Unix PTY on Linux/Mac via portable-pty
-//
-// Current: stub implementation for UI development
-// Phase 2: uncomment portable-pty code, add to Cargo.toml deps
-
 use once_cell::sync::Lazy;
+use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 #[cfg(target_os = "windows")]
@@ -15,7 +12,7 @@ const DEFAULT_SHELL: &str = "powershell.exe";
 #[cfg(not(target_os = "windows"))]
 const DEFAULT_SHELL: &str = "/bin/bash";
 
-// ===== Types =====
+const READ_BUF_SIZE: usize = 4096;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PtyInfo {
@@ -27,33 +24,66 @@ pub struct PtyInfo {
     pub shell: String,
 }
 
-// ===== Global State =====
+#[derive(Clone, Serialize)]
+struct PtyDataPayload {
+    pty_id: String,
+    data: String,
+}
 
-static PTYS: Lazy<Mutex<HashMap<String, PtyInfo>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+#[derive(Clone, Serialize)]
+struct PtyExitPayload {
+    pty_id: String,
+    code: i32,
+}
 
-// ===== Commands =====
+struct PtyEntry {
+    info: PtyInfo,
+    writer: Option<Box<dyn Write + Send>>,
+    master: Option<Box<dyn MasterPty + Send>>,
+    child: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>>,
+}
+
+static PTYS: Lazy<Mutex<HashMap<String, PtyEntry>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 #[tauri::command]
-pub fn create_pty(cwd: String, cols: u16, rows: u16) -> Result<PtyInfo, String> {
+pub fn create_pty(
+    app: AppHandle,
+    cwd: String,
+    cols: u16,
+    rows: u16,
+) -> Result<PtyInfo, String> {
     let id = Uuid::new_v4().to_string();
 
-    // === Phase 2: Real PTY (uncomment when portable-pty is added) ===
-    //
-    // use portable_pty::{CommandBuilder, PtySize, native_pty_system};
-    //
-    // let pty_system = native_pty_system();
-    // let pair = pty_system.openpty(PtySize {
-    //     rows, cols, pixel_width: 0, pixel_height: 0,
-    // }).map_err(|e| format!("Failed to open PTY: {}", e))?;
-    //
-    // let mut cmd = CommandBuilder::new(DEFAULT_SHELL);
-    // cmd.cwd(&cwd);
-    // cmd.env("WMUX_PANE_ID", &id);
-    // cmd.env("WMUX", "1");
-    // cmd.env("TERM", "xterm-256color");
-    //
-    // let child = pair.slave.spawn_command(cmd)
-    //     .map_err(|e| format!("Failed to spawn: {}", e))?;
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("openpty failed: {}", e))?;
+
+    let mut cmd = CommandBuilder::new(DEFAULT_SHELL);
+    cmd.cwd(&cwd);
+    cmd.env("WMUX", "1");
+    cmd.env("WMUX_PANE_ID", &id);
+    cmd.env("TERM", "xterm-256color");
+
+    let child: Box<dyn Child + Send + Sync> = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("spawn {} failed: {}", DEFAULT_SHELL, e))?;
+
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("try_clone_reader failed: {}", e))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("take_writer failed: {}", e))?;
 
     let info = PtyInfo {
         id: id.clone(),
@@ -64,69 +94,200 @@ pub fn create_pty(cwd: String, cols: u16, rows: u16) -> Result<PtyInfo, String> 
         shell: DEFAULT_SHELL.to_string(),
     };
 
-    let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
-    ptys.insert(id.clone(), info.clone());
+    let child_arc: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>> =
+        Arc::new(Mutex::new(Some(child)));
+    let child_for_thread = Arc::clone(&child_arc);
 
-    log::info!("[pty] Spawned {} ({} {}x{})", id, DEFAULT_SHELL, cols, rows);
+    let app_for_thread = app.clone();
+    let id_for_thread = id.clone();
+    std::thread::spawn(move || {
+        reader_thread(app_for_thread, id_for_thread, reader, child_for_thread);
+    });
+
+    let entry = PtyEntry {
+        info: info.clone(),
+        writer: Some(writer),
+        master: Some(pair.master),
+        child: child_arc,
+    };
+
+    {
+        let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
+        ptys.insert(id.clone(), entry);
+    }
+
+    log::info!(
+        "[pty] spawned {} ({} {}x{} cwd={})",
+        id,
+        DEFAULT_SHELL,
+        cols,
+        rows,
+        info.cwd
+    );
     Ok(info)
+}
+
+fn reader_thread(
+    app: AppHandle,
+    pty_id: String,
+    mut reader: Box<dyn Read + Send>,
+    child: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>>,
+) {
+    let mut buf = [0u8; READ_BUF_SIZE];
+    let mut total_bytes: usize = 0;
+
+    loop {
+        match reader.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                total_bytes += n;
+                let data = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let _ = app.emit(
+                    "pty_data",
+                    PtyDataPayload {
+                        pty_id: pty_id.clone(),
+                        data,
+                    },
+                );
+            }
+            Err(e) => {
+                log::debug!("[pty] reader error for {}: {}", pty_id, e);
+                break;
+            }
+        }
+    }
+
+    let code: i32 = {
+        let mut guard = child.lock().unwrap();
+        match guard.take() {
+            Some(mut c) => match c.try_wait() {
+                Ok(Some(status)) => status.exit_code() as i32,
+                _ => c.wait().map(|s| s.exit_code() as i32).unwrap_or(-1),
+            },
+            None => -1,
+        }
+    };
+
+    let was_tracked = {
+        let Ok(mut ptys) = PTYS.lock() else { return };
+        match ptys.get_mut(&pty_id) {
+            Some(entry) => {
+                entry.info.alive = false;
+                true
+            }
+            None => false,
+        }
+    };
+    if was_tracked {
+        let _ = app.emit(
+            "pty_exit",
+            PtyExitPayload {
+                pty_id: pty_id.clone(),
+                code,
+            },
+        );
+    }
+    log::info!(
+        "[pty] {} exited code={} ({} bytes read)",
+        pty_id,
+        code,
+        total_bytes
+    );
 }
 
 #[tauri::command]
 pub fn write_pty(pty_id: String, data: String) -> Result<(), String> {
-    let ptys = PTYS.lock().map_err(|e| e.to_string())?;
-    let pty = ptys
-        .get(&pty_id)
+    let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
+    let entry = ptys
+        .get_mut(&pty_id)
         .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-
-    if !pty.alive {
+    if !entry.info.alive {
         return Err(format!("PTY {} is not alive", pty_id));
     }
-
-    // Phase 2: writer.write_all(data.as_bytes())
-    log::debug!("[pty] Write to {}: {} bytes", pty_id, data.len());
+    let writer = entry
+        .writer
+        .as_mut()
+        .ok_or_else(|| format!("PTY {} writer is closed", pty_id))?;
+    writer
+        .write_all(data.as_bytes())
+        .map_err(|e| format!("write failed: {}", e))?;
+    let _ = writer.flush();
+    log::trace!("[pty] write {}: {} bytes", pty_id, data.len());
     Ok(())
 }
 
 #[tauri::command]
 pub fn resize_pty(pty_id: String, cols: u16, rows: u16) -> Result<(), String> {
     let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
-    let pty = ptys
+    let entry = ptys
         .get_mut(&pty_id)
         .ok_or_else(|| format!("PTY {} not found", pty_id))?;
-
-    pty.cols = cols;
-    pty.rows = rows;
-
-    // Phase 2: pair.master.resize(PtySize { rows, cols, ... })
-    log::debug!("[pty] Resize {}: {}x{}", pty_id, cols, rows);
+    entry.info.cols = cols;
+    entry.info.rows = rows;
+    let master = entry
+        .master
+        .as_ref()
+        .ok_or_else(|| format!("PTY {} master is closed", pty_id))?;
+    master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("resize failed: {}", e))?;
+    log::debug!("[pty] resize {}: {}x{}", pty_id, cols, rows);
     Ok(())
 }
 
 #[tauri::command]
 pub fn close_pty(pty_id: String) -> Result<(), String> {
-    let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
-    ptys.remove(&pty_id)
-        .ok_or_else(|| format!("PTY {} not found", pty_id))?;
+    let entry = {
+        let mut ptys = PTYS.lock().map_err(|e| e.to_string())?;
+        ptys.remove(&pty_id)
+            .ok_or_else(|| format!("PTY {} not found", pty_id))?
+    };
 
-    log::info!("[pty] Closed {}", pty_id);
+    {
+        let mut guard = entry.child.lock().unwrap();
+        if let Some(c) = guard.as_mut() {
+            let _ = c.kill();
+        }
+    }
+    drop(entry.writer);
+    drop(entry.master);
+
+    log::info!("[pty] closed {}", pty_id);
     Ok(())
+}
+
+pub fn kill_all() {
+    let entries: Vec<PtyEntry> = {
+        let Ok(mut ptys) = PTYS.lock() else { return };
+        ptys.drain().map(|(_, e)| e).collect()
+    };
+    let count = entries.len();
+    for entry in entries {
+        if let Ok(mut guard) = entry.child.lock() {
+            if let Some(c) = guard.as_mut() {
+                let _ = c.kill();
+            }
+        }
+        drop(entry.writer);
+        drop(entry.master);
+    }
+    log::info!("[pty] killed all ({} ptys)", count);
 }
 
 #[tauri::command]
 pub fn list_ptys() -> Result<Vec<PtyInfo>, String> {
     let ptys = PTYS.lock().map_err(|e| e.to_string())?;
-    Ok(ptys.values().cloned().collect())
+    Ok(ptys.values().map(|e| e.info.clone()).collect())
 }
-
-// ===== OSC Parser =====
-// Detects notification sequences from terminal output:
-// OSC 9 (iTerm2 growl), OSC 99 (kitty), OSC 777 (rxvt)
-// Also detects agent "waiting for input" patterns
 
 pub fn parse_osc(data: &[u8]) -> Option<(String, String)> {
     let text = String::from_utf8_lossy(data);
 
-    // OSC 9 ; <message> ST
     if let Some(start) = text.find("\x1b]9;") {
         if let Some(end) = text[start..].find('\x07') {
             let msg = &text[start + 4..start + end];
@@ -134,7 +295,6 @@ pub fn parse_osc(data: &[u8]) -> Option<(String, String)> {
         }
     }
 
-    // OSC 777 ; notify ; <title> ; <body> ST
     if let Some(start) = text.find("\x1b]777;notify;") {
         if let Some(end) = text[start..].find('\x07') {
             let payload = &text[start + 13..start + end];
@@ -146,7 +306,6 @@ pub fn parse_osc(data: &[u8]) -> Option<(String, String)> {
         }
     }
 
-    // Agent waiting heuristics
     let waiting_patterns = [
         "Waiting for your input",
         "waiting for input",
@@ -196,10 +355,27 @@ mod tests {
     }
 
     #[test]
-    fn test_create_and_list_pty() {
-        let pty = create_pty("/tmp".to_string(), 80, 24).unwrap();
-        assert!(pty.alive);
-        assert_eq!(pty.cols, 80);
-        assert_eq!(pty.rows, 24);
+    fn test_pty_info_serde() {
+        let info = PtyInfo {
+            id: "test-id".to_string(),
+            cwd: "C:\\test".to_string(),
+            cols: 80,
+            rows: 24,
+            alive: true,
+            shell: "powershell.exe".to_string(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: PtyInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "test-id");
+        assert_eq!(back.cols, 80);
+        assert_eq!(back.rows, 24);
+        assert!(back.alive);
+    }
+
+    #[test]
+    fn test_kill_all_empty() {
+        kill_all();
+        let ptys = PTYS.lock().unwrap();
+        assert!(ptys.is_empty());
     }
 }

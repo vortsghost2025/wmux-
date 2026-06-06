@@ -58,8 +58,13 @@ pub fn run() {
             wave_send_command,
             wave_ask_all,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running wmux");
+        .build(tauri::generate_context!())
+        .expect("error while building wmux")
+        .run(|_app, event| {
+            if let tauri::RunEvent::Exit = event {
+                pty_manager::kill_all();
+            }
+        });
 }
 
 #[tauri::command]
