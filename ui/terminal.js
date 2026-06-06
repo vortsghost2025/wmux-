@@ -170,11 +170,11 @@ function setupPtyDataListener() {
   if (!isTauri) return;
 
   TAURI.event.listen('pty_data', (event) => {
-    const { ptyId, data } = event.payload;
+    const { pty_id, data } = event.payload;
     // Find the terminal with this ptyId
-    const entry = Object.values(terminals).find(t => t.ptyId === ptyId);
+    const entry = Object.values(terminals).find(t => t.ptyId === pty_id);
     if (entry) {
-      // data is a Uint8Array or base64 string — write to terminal
+      // data is a String (from Rust) — write to terminal
       if (typeof data === 'string') {
         entry.term.write(data);
       } else {
@@ -184,8 +184,8 @@ function setupPtyDataListener() {
   });
 
   TAURI.event.listen('pty_exit', (event) => {
-    const { ptyId, code } = event.payload;
-    const entry = Object.values(terminals).find(t => t.ptyId === ptyId);
+    const { pty_id, code } = event.payload;
+    const entry = Object.values(terminals).find(t => t.ptyId === pty_id);
     if (entry) {
       entry.term.writeln(`\r\n\x1b[33m[Process exited with code ${code}]\x1b[0m`);
       entry.ptyId = null;

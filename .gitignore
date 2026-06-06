@@ -15,6 +15,9 @@ dist/
 .DS_Store
 Thumbs.db
 
+# Tauri generated
+src-tauri/gen/
+
 # Build artifacts
 *.exe
 *.msi
