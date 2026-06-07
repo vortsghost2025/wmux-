@@ -1,8 +1,9 @@
 // Session Manager — save/restore workspace layouts, scrollback, and agent resume
-// Saves to: %LOCALAPPDATA%\wmux\session.json  (Windows)
-//           ~/.local/share/wmux/session.json   (Linux)
+// Saves to: %LOCALAPPDATA%\wmux\session.json (Windows)
+// ~/.local/share/wmux/session.json (Linux)
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -20,6 +21,7 @@ pub struct WorkspaceSnapshot {
     pub is_active: bool,
     pub panes: Vec<PaneSnapshot>,
     pub browser_urls: Vec<String>,
+    pub pane_layout_json: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -38,8 +40,6 @@ pub struct AgentResumeInfo {
 }
 
 fn session_dir() -> PathBuf {
-    // Windows: C:\Users\<user>\AppData\Local\wmux
-    // Linux:   ~/.local/share/wmux
     if cfg!(target_os = "windows") {
         std::env::var("LOCALAPPDATA")
             .map(PathBuf::from)
@@ -64,10 +64,9 @@ fn session_path() -> PathBuf {
 }
 
 #[tauri::command]
-pub fn save_session() -> Result<String, String> {
+pub fn save_session(workspace_layouts: Option<HashMap<String, String>>) -> Result<String, String> {
     let workspaces = crate::workspace::list_workspaces_internal();
     let active_id = crate::workspace::get_active_workspace_id();
-
     let snapshot = SessionSnapshot {
         version: 1,
         timestamp: chrono::Utc::now().to_rfc3339(),
@@ -80,6 +79,10 @@ pub fn save_session() -> Result<String, String> {
                 is_active: active_id.as_ref() == Some(&ws.id),
                 panes: vec![],
                 browser_urls: vec![],
+                pane_layout_json: workspace_layouts
+                    .as_ref()
+                    .and_then(|m| m.get(&ws.id))
+                    .cloned(),
             })
             .collect(),
     };
@@ -127,19 +130,24 @@ mod tests {
         let snapshot = SessionSnapshot {
             version: 1,
             timestamp: "2026-06-06T00:00:00Z".to_string(),
-        workspaces: vec![WorkspaceSnapshot {
-            name: "test".to_string(),
-            directory: "/tmp".to_string(),
-            git_branch: Some("main".to_string()),
-            is_active: true,
-            panes: vec![],
-            browser_urls: vec![],
-        }],
+            workspaces: vec![WorkspaceSnapshot {
+                name: "test".to_string(),
+                directory: "/tmp".to_string(),
+                git_branch: Some("main".to_string()),
+                is_active: true,
+                panes: vec![],
+                browser_urls: vec![],
+                pane_layout_json: Some(r#"{"split":"horizontal"}"#.to_string()),
+            }],
         };
 
         let json = serde_json::to_string(&snapshot).unwrap();
         let parsed: SessionSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.workspaces.len(), 1);
         assert_eq!(parsed.workspaces[0].name, "test");
+        assert_eq!(
+            parsed.workspaces[0].pane_layout_json,
+            Some(r#"{"split":"horizontal"}"#.to_string())
+        );
     }
 }

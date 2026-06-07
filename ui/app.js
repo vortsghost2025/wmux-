@@ -17,50 +17,70 @@ async function invoke(cmd, args = {}) {
   // ===== State =====
   let _restoring = false;
 
-  const state = {
-    workspaces: [],
-    activeWorkspaceId: null,
-    panes: {}, // workspaceId -> [{id, ptyId, agentName, agentStatus}]
-    focusedPaneId: null,
-    notifications: [],
-    toastQueue: [],
-    commandPaletteOpen: false,
-    sidebarVisible: true,
-  };
+const state = {
+  workspaces: [],
+  activeWorkspaceId: null,
+  panes: {}, // workspaceId -> [{id, ptyId, agentName, agentStatus}]
+  focusedPaneId: null,
+  notifications: [],
+  toastQueue: [],
+  commandPaletteOpen: false,
+  sidebarVisible: true,
+  workspaceLayouts: {},
+};
 
   // ===== Session Persistence =====
 
   async function saveSession() {
   if (_restoring) return;
   try {
-    await invoke('save_session');
+    if (state.activeWorkspaceId && window.capturePaneLayout) {
+      const layout = window.capturePaneLayout();
+      if (layout) {
+        state.workspaceLayouts[state.activeWorkspaceId] = layout;
+      }
+    }
+    await invoke('save_session', { workspaceLayouts: JSON.stringify(state.workspaceLayouts) });
   } catch (e) {
     console.error('save_session failed:', e);
   }
 }
 
-  async function loadSession() {
+async function loadSession() {
+  try {
+    const snapshot = await invoke('load_session');
+    if (!snapshot || !snapshot.workspaces || snapshot.workspaces.length === 0) return false;
+    _restoring = true;
     try {
-      const snapshot = await invoke('load_session');
-      if (!snapshot || !snapshot.workspaces || snapshot.workspaces.length === 0) return false;
-      _restoring = true;
-      try {
-        for (const ws of snapshot.workspaces) {
-          await invoke('create_workspace', { name: ws.name, directory: ws.directory });
+      for (const ws of snapshot.workspaces) {
+        await invoke('create_workspace', { name: ws.name, directory: ws.directory });
+        if (ws.pane_layout_json) {
+          try {
+            state.workspaceLayouts[ws.name] = typeof ws.pane_layout_json === 'string'
+              ? JSON.parse(ws.pane_layout_json)
+              : ws.pane_layout_json;
+          } catch (_) {}
         }
+      }
       const activeWs = snapshot.workspaces.find(w => w.is_active);
-        if (activeWs) {
-          await invoke('switch_workspace', { workspaceId: activeWs.name });
+      if (activeWs) {
+        await invoke('switch_workspace', { workspaceId: activeWs.name });
+        state.activeWorkspaceId = activeWs.name;
+        window.__wmux_activeWorkspaceId = activeWs.name;
+        const layout = state.workspaceLayouts[activeWs.name];
+        if (layout && window.restorePaneLayout) {
+          window.restorePaneLayout(layout);
+        }
       }
     } finally {
       _restoring = false;
     }
     return true;
-    } catch (e) {
-      console.error('load_session failed:', e);
-      return false;
-    }
+  } catch (e) {
+    console.error('load_session failed:', e);
+    return false;
   }
+}
 
   // ===== Workspace Management =====
 
@@ -87,18 +107,29 @@ saveSession();
   }
 }
 
-  async function switchToWorkspace(workspaceId) {
-    try {
-      await invoke('switch_workspace', { workspaceId });
-      state.activeWorkspaceId = workspaceId;
-      await invoke('mark_read', { workspaceId });
-      await loadWorkspaces();
-      renderPanes();
-      saveSession();
-    } catch (e) {
-      console.error('switch_workspace failed:', e);
+async function switchToWorkspace(workspaceId) {
+  try {
+    if (state.activeWorkspaceId && window.capturePaneLayout) {
+      const layout = window.capturePaneLayout();
+      if (layout) {
+        state.workspaceLayouts[state.activeWorkspaceId] = layout;
+      }
     }
+    await invoke('switch_workspace', { workspaceId });
+    state.activeWorkspaceId = workspaceId;
+    window.__wmux_activeWorkspaceId = workspaceId;
+    await invoke('mark_read', { workspaceId });
+    await loadWorkspaces();
+    renderPanes();
+    const targetLayout = state.workspaceLayouts[workspaceId];
+    if (targetLayout && window.restorePaneLayout) {
+      window.restorePaneLayout(targetLayout);
+    }
+    saveSession();
+  } catch (e) {
+    console.error('switch_workspace failed:', e);
   }
+}
 
 async function renameWorkspace(workspaceId) {
   const ws = state.workspaces.find(w => w.id === workspaceId);
@@ -113,10 +144,11 @@ saveSession();
 
 async function removeWorkspace(workspaceId) {
   if (!confirm('Close this workspace?')) return;
-  await invoke('remove_workspace', { workspaceId });
+  await invoke('delete_workspace', { workspaceId });
   state.workspaces = state.workspaces.filter(w => w.id !== workspaceId);
   if (state.activeWorkspaceId === workspaceId) {
     state.activeWorkspaceId = state.workspaces[0]?.id || null;
+    window.__wmux_activeWorkspaceId = state.activeWorkspaceId || 'default';
   }
   renderSidebar();
 saveSession();
@@ -148,6 +180,14 @@ function showToast(title, body, urgency, agentClass) {
     toast.style.transform = 'translateX(120px)';
     setTimeout(() => toast.remove(), 300);
   }, 6000);
+}
+
+function incrementUnread(workspaceId) {
+  const ws = state.workspaces.find(w => w.id === workspaceId);
+  if (ws) {
+    ws.unread_count = (ws.unread_count || 0) + 1;
+    renderSidebar();
+  }
 }
 
 async function jumpToUnread() {
@@ -491,7 +531,7 @@ function mockInvoke(cmd, args) {
     case 'rename_workspace':
       { const w = mockWorkspaces.find(w => w.id === args.workspaceId); if (w) w.name = args.newName; }
       return null;
-    case 'remove_workspace':
+    case 'delete_workspace':
       { const idx = mockWorkspaces.findIndex(w => w.id === args.workspaceId); if (idx >= 0) mockWorkspaces.splice(idx, 1); }
       return null;
     case 'mark_read':
@@ -536,6 +576,7 @@ const restored = await loadSession();
   if (!state.activeWorkspaceId && state.workspaces.length > 0) {
     const active = state.workspaces.find(w => w.is_active) || state.workspaces[0];
     state.activeWorkspaceId = active.id;
+    window.__wmux_activeWorkspaceId = active.id;
   }
 
   renderSidebar();
@@ -551,9 +592,18 @@ window.workspaceContextMenu = workspaceContextMenu;
 window.executePaletteCommand = executePaletteCommand;
 window.toggleCommandPalette = toggleCommandPalette;
 window.promptNewWorkspace = promptNewWorkspace;
+window.__wmux_incrementUnread = incrementUnread;
 
 window.addEventListener('beforeunload', () => {
-  try { invoke('save_session'); } catch (_) {}
+  try {
+    if (state.activeWorkspaceId && window.capturePaneLayout) {
+      const layout = window.capturePaneLayout();
+      if (layout) {
+        state.workspaceLayouts[state.activeWorkspaceId] = layout;
+      }
+    }
+    invoke('save_session', { workspaceLayouts: JSON.stringify(state.workspaceLayouts) });
+  } catch (_) {}
 });
 
 })();

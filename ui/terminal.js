@@ -41,7 +41,7 @@ const WMUX_THEME = {
 
 // ===== Create a terminal in a container =====
 
-async function createTerminal(containerId, cwd) {
+async function createTerminal(containerId, cwd, workspaceId) {
   const container = document.getElementById(containerId);
   if (!container || !XTerm || !FitAddonClass) {
     console.error('[terminal] Missing container or xterm:', containerId);
@@ -83,11 +83,12 @@ async function createTerminal(containerId, cwd) {
 
   if (isTauri) {
     try {
-      const info = await TAURI.core.invoke('create_pty', {
-        cwd: cwd || 'C:\\Users\\seand',
-        cols: term.cols,
-        rows: term.rows,
-      });
+const info = await TAURI.core.invoke('create_pty', {
+      cwd: cwd || 'C:\\Users\\seand',
+      cols: term.cols,
+      rows: term.rows,
+      workspaceId: workspaceId || 'default',
+    });
       ptyId = info.id;
       console.log(`[terminal] PTY ${ptyId} created (${term.cols}x${term.rows})`);
     } catch (e) {
@@ -121,7 +122,7 @@ async function createTerminal(containerId, cwd) {
   });
   ro.observe(container);
 
-  const entry = { term, fitAddon, ptyId, ro, containerId };
+  const entry = { term, fitAddon, ptyId, ro, containerId, cwd: cwd || null };
   terminals[containerId] = entry;
   return entry;
 }
@@ -144,6 +145,12 @@ function setupPtyListener() {
       entry.term.writeln(`\r\n\x1b[33m[exited: ${code}]\x1b[0m`);
       entry.ptyId = null;
     }
+  });
+
+  TAURI.event.listen('agent_waiting', (event) => {
+    const { pty_id, workspace_id, title, body } = event.payload;
+    if (window.showToast) window.showToast(title, body, 'normal');
+    if (window.__wmux_incrementUnread) window.__wmux_incrementUnread(workspace_id);
   });
 }
 
@@ -190,8 +197,7 @@ if (window.PaneManager) window.PaneManager.focusedId = pane.id;
   // Setup resize handle
   setupSingleResizeH(handle);
 
-  // Create terminal after DOM settles
-  setTimeout(() => createTerminal(xtermId, 'S:\\wmux-'), 100);
+  setTimeout(() => createTerminal(xtermId, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default'), 100);
 
   // Refit all existing terminals
   setTimeout(() => {
@@ -241,7 +247,7 @@ function splitDown() {
 
   setupSingleResizeV(handle);
 
-  setTimeout(() => createTerminal(xtermId, 'S:\\wmux-'), 100);
+  setTimeout(() => createTerminal(xtermId, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default'), 100);
   setTimeout(() => {
     Object.values(terminals).forEach(t => {
       try { t.fitAddon.fit(); } catch(e) {}
@@ -353,8 +359,8 @@ function closePane(paneElement) {
   if (allPanes.length <= 1) {
     // Respawn fresh terminal in same pane
     if (xtermContainer) {
-      xtermContainer.innerHTML = '';
-      setTimeout(() => createTerminal(xtermContainer.id, 'S:\\\\wmux-'), 50);
+xtermContainer.innerHTML = '';
+        setTimeout(() => createTerminal(xtermContainer.id, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default'), 50);
     }
     return;
   }
@@ -481,7 +487,7 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  setTimeout(() => createTerminal('xterm-1', 'S:\\wmux-'), 50);
+  setTimeout(() => createTerminal('xterm-1', 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default'), 50);
 });
 
 // Exports for app.js
@@ -497,12 +503,123 @@ function closeTerminal(containerId) {
     delete terminals[containerId];
 }
 
+function capturePaneLayout() {
+  const grid = document.querySelector('.pane-grid');
+  if (!grid) return { rows: [] };
+
+  const rows = [];
+  for (const child of grid.children) {
+    if (!child.classList.contains('pane-row')) continue;
+    const rowFlex = parseFloat(getComputedStyle(child).flexGrow) || 1;
+    const panes = [];
+    for (const rc of child.children) {
+      if (!rc.classList.contains('pane')) continue;
+      const paneFlex = parseFloat(getComputedStyle(rc).flexGrow) || 1;
+      const xtermEl = rc.querySelector('.xterm-container');
+      const xtermId = xtermEl ? xtermEl.id : null;
+      const entry = xtermId ? terminals[xtermId] : null;
+      panes.push({
+        id: rc.id,
+        xtermId,
+        flex: paneFlex,
+        ptyId: entry?.ptyId || null,
+        cwd: entry?.cwd || null,
+      });
+    }
+    if (panes.length > 0) rows.push({ flex: rowFlex, panes });
+  }
+  return { rows };
+}
+
+async function restorePaneLayout(layout) {
+  if (!layout || !layout.rows || layout.rows.length === 0) return;
+
+  const grid = document.querySelector('.pane-grid');
+  if (!grid) return;
+
+  Object.values(terminals).forEach(t => {
+    if (t.ptyId && isTauri) TAURI.core.invoke('close_pty', { ptyId: t.ptyId }).catch(() => {});
+    try { t.ro?.disconnect(); } catch(_) {}
+    try { t.term.dispose(); } catch(_) {}
+  });
+  for (const k of Object.keys(terminals)) delete terminals[k];
+
+  grid.innerHTML = '';
+
+  paneCounter = 0;
+
+  for (let ri = 0; ri < layout.rows.length; ri++) {
+    const rowData = layout.rows[ri];
+
+    if (ri > 0) {
+      const vHandle = document.createElement('div');
+      vHandle.className = 'resize-v';
+      grid.appendChild(vHandle);
+      setupSingleResizeV(vHandle);
+    }
+
+    const row = document.createElement('div');
+    row.className = 'pane-row';
+    row.style.flex = rowData.flex || 1;
+
+    for (let pi = 0; pi < rowData.panes.length; pi++) {
+      const paneData = rowData.panes[pi];
+      paneCounter++;
+      const paneId = paneData.id || ('pane-' + paneCounter);
+      const xtermId = paneData.xtermId || ('xterm-' + paneCounter);
+
+      if (pi > 0) {
+        const hHandle = document.createElement('div');
+        hHandle.className = 'resize-h';
+        row.appendChild(hHandle);
+        setupSingleResizeH(hHandle);
+      }
+
+      const pane = document.createElement('div');
+      pane.className = 'pane';
+      pane.id = paneId;
+      pane.style.flex = paneData.flex || 1;
+      pane.innerHTML = `
+        <div class="pane-header">
+          <div class="pane-header-left">
+            <span class="agent-badge term${(paneCounter % 3) + 1}">Terminal ${paneCounter}</span>
+            <span>${paneData.cwd || 'S:\\wmux-'}</span>
+          </div>
+          <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
+        </div>
+        <div class="xterm-container" id="${xtermId}"></div>
+      `;
+      pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
+      pane.addEventListener('mousedown', () => {
+        document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
+        pane.classList.add('focused');
+        if (window.PaneManager) window.PaneManager.focusedId = pane.id;
+      });
+      row.appendChild(pane);
+
+const cwd = paneData.cwd || null;
+    setTimeout(() => createTerminal(xtermId, cwd, window.__wmux_activeWorkspaceId || 'default'), 50 + (ri * rowData.panes.length + pi) * 100);
+    }
+
+    grid.appendChild(row);
+  }
+
+  setTimeout(() => {
+    Object.values(terminals).forEach(t => { try { t.fitAddon.fit(); } catch(e) {} });
+  }, 500);
+
+  const firstPane = grid.querySelector('.pane');
+  if (firstPane) firstPane.classList.add('focused');
+}
+
 window.splitRight = splitRight;
 window.splitDown = splitDown;
 window.createTerminal = createTerminal;
 window.closeFocusedPane = closeFocusedPane;
 window.closePane = closePane;
 window.closeTerminal = closeTerminal;
+window.capturePaneLayout = capturePaneLayout;
+window.restorePaneLayout = restorePaneLayout;
 window.terminals = terminals;
 
 })();
