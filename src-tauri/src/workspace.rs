@@ -79,6 +79,10 @@ pub fn create_workspace(name: String, directory: String) -> Result<Workspace, St
 }
 
 /// Internal: list workspaces without Tauri command wrapper
+pub fn get_active_workspace_id() -> Option<String> {
+    ACTIVE_ID.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 pub fn list_workspaces_internal() -> Vec<Workspace> {
     let workspaces = WORKSPACES.lock().unwrap_or_else(|e| e.into_inner());
     let mut list: Vec<Workspace> = workspaces.values().cloned().collect();

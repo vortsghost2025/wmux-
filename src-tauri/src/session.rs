@@ -17,6 +17,7 @@ pub struct WorkspaceSnapshot {
     pub name: String,
     pub directory: String,
     pub git_branch: Option<String>,
+    pub is_active: bool,
     pub panes: Vec<PaneSnapshot>,
     pub browser_urls: Vec<String>,
 }
@@ -64,8 +65,8 @@ fn session_path() -> PathBuf {
 
 #[tauri::command]
 pub fn save_session() -> Result<String, String> {
-    // Gather current state from workspace manager
     let workspaces = crate::workspace::list_workspaces_internal();
+    let active_id = crate::workspace::get_active_workspace_id();
 
     let snapshot = SessionSnapshot {
         version: 1,
@@ -76,7 +77,8 @@ pub fn save_session() -> Result<String, String> {
                 name: ws.name.clone(),
                 directory: ws.directory.clone(),
                 git_branch: ws.git_branch.clone(),
-                panes: vec![], // Phase 2: capture actual pane layout
+                is_active: active_id.as_ref() == Some(&ws.id),
+                panes: vec![],
                 browser_urls: vec![],
             })
             .collect(),
@@ -125,13 +127,14 @@ mod tests {
         let snapshot = SessionSnapshot {
             version: 1,
             timestamp: "2026-06-06T00:00:00Z".to_string(),
-            workspaces: vec![WorkspaceSnapshot {
-                name: "test".to_string(),
-                directory: "/tmp".to_string(),
-                git_branch: Some("main".to_string()),
-                panes: vec![],
-                browser_urls: vec![],
-            }],
+        workspaces: vec![WorkspaceSnapshot {
+            name: "test".to_string(),
+            directory: "/tmp".to_string(),
+            git_branch: Some("main".to_string()),
+            is_active: true,
+            panes: vec![],
+            browser_urls: vec![],
+        }],
         };
 
         let json = serde_json::to_string(&snapshot).unwrap();

@@ -14,21 +14,57 @@ async function invoke(cmd, args = {}) {
   return mockInvoke(cmd, args);
 }
 
-// ===== State =====
-const state = {
-  workspaces: [],
-  activeWorkspaceId: null,
-  panes: {},              // workspaceId -> [{id, ptyId, agentName, agentStatus}]
-  focusedPaneId: null,
-  notifications: [],
-  toastQueue: [],
-  commandPaletteOpen: false,
-  sidebarVisible: true,
-};
+  // ===== State =====
+  let _restoring = false;
 
-// ===== Workspace Management =====
+  const state = {
+    workspaces: [],
+    activeWorkspaceId: null,
+    panes: {}, // workspaceId -> [{id, ptyId, agentName, agentStatus}]
+    focusedPaneId: null,
+    notifications: [],
+    toastQueue: [],
+    commandPaletteOpen: false,
+    sidebarVisible: true,
+  };
 
-async function loadWorkspaces() {
+  // ===== Session Persistence =====
+
+  async function saveSession() {
+  if (_restoring) return;
+  try {
+    await invoke('save_session');
+  } catch (e) {
+    console.error('save_session failed:', e);
+  }
+}
+
+  async function loadSession() {
+    try {
+      const snapshot = await invoke('load_session');
+      if (!snapshot || !snapshot.workspaces || snapshot.workspaces.length === 0) return false;
+      _restoring = true;
+      try {
+        for (const ws of snapshot.workspaces) {
+          await invoke('create_workspace', { name: ws.name, directory: ws.directory });
+        }
+      const activeWs = snapshot.workspaces.find(w => w.is_active);
+        if (activeWs) {
+          await invoke('switch_workspace', { workspaceId: activeWs.name });
+      }
+    } finally {
+      _restoring = false;
+    }
+    return true;
+    } catch (e) {
+      console.error('load_session failed:', e);
+      return false;
+    }
+  }
+
+  // ===== Workspace Management =====
+
+  async function loadWorkspaces() {
   try {
     state.workspaces = await invoke('list_workspaces');
   } catch (e) {
@@ -38,42 +74,41 @@ async function loadWorkspaces() {
   renderStatusBar();
 }
 
-async function createWorkspace(name, directory) {
+  async function createWorkspace(name, directory) {
   try {
     const ws = await invoke('create_workspace', { name, directory });
     state.workspaces.push(ws);
     renderSidebar();
     switchToWorkspace(ws.id);
     showToast('Workspace created', name, 'normal');
-    scheduleAutoSave();
+saveSession();
   } catch (e) {
     console.error('create_workspace failed:', e);
   }
 }
 
-async function switchToWorkspace(workspaceId) {
-  try {
-    await invoke('switch_workspace', { workspaceId });
-    state.activeWorkspaceId = workspaceId;
-    // Mark read
-    await invoke('mark_read', { workspaceId });
-    // Refresh workspace list to get updated unread counts
-    await loadWorkspaces();
-    renderPanes();
-  } catch (e) {
-    console.error('switch_workspace failed:', e);
+  async function switchToWorkspace(workspaceId) {
+    try {
+      await invoke('switch_workspace', { workspaceId });
+      state.activeWorkspaceId = workspaceId;
+      await invoke('mark_read', { workspaceId });
+      await loadWorkspaces();
+      renderPanes();
+      saveSession();
+    } catch (e) {
+      console.error('switch_workspace failed:', e);
+    }
   }
-}
 
 async function renameWorkspace(workspaceId) {
   const ws = state.workspaces.find(w => w.id === workspaceId);
   if (!ws) return;
   const newName = prompt('Rename workspace:', ws.name);
-  if (newName && newName !== ws.name) {
-    await invoke('rename_workspace', { workspaceId, newName });
-    await loadWorkspaces();
-    scheduleAutoSave();
-  }
+if (newName && newName !== ws.name) {
+ await invoke('rename_workspace', { workspaceId, newName });
+await loadWorkspaces();
+saveSession();
+}
 }
 
 async function removeWorkspace(workspaceId) {
@@ -84,7 +119,7 @@ async function removeWorkspace(workspaceId) {
     state.activeWorkspaceId = state.workspaces[0]?.id || null;
   }
   renderSidebar();
-  scheduleAutoSave();
+saveSession();
 }
 
 // ===== Notification System =====
@@ -465,7 +500,12 @@ function mockInvoke(cmd, args) {
     case 'send_notification': return { id: 'n-' + Date.now(), ...args, read: false };
     case 'get_all_notifications': return [];
     case 'save_session': return `Session saved (${mockWorkspaces.length} workspaces)`;
-    case 'load_session': return null;
+    case 'load_session':
+    return {
+      version: 1,
+      timestamp: new Date().toISOString(),
+      workspaces: mockWorkspaces.map(w => ({ name: w.name, directory: w.directory, git_branch: w.git_branch, is_active: w.is_active, panes: [], browser_urls: [] }))
+    };
     case 'wave_bridge_status': return { mode: 'disabled', bridge_dir: null, api_port: null, connected: false };
     case 'wave_ask_all': return mockWorkspaces.map(w => ({ workspace: w.name, agent: w.agents[0]?.name || null, status: w.agents[0]?.status || 'idle', last_lines: [] }));
     case 'report_agent_status': return null;
@@ -474,44 +514,6 @@ function mockInvoke(cmd, args) {
 }
 
 // ===== Init =====
-
-// ===== Session Persistence =====
-
-async function saveSessionNow() {
-  try {
-    const result = await invoke('save_session');
-    console.log('[wmux] Session saved:', result);
-  } catch (e) {
-    console.error('[wmux] save_session failed:', e);
-  }
-}
-
-async function restoreSession() {
-  try {
-    const session = await invoke('load_session');
-    if (session && session.workspaces && session.workspaces.length > 0) {
-      console.log('[wmux] Restoring session:', session.workspaces.length, 'workspaces');
-      for (const ws of session.workspaces) {
-        // Only create if it doesn't already exist
-        const existing = state.workspaces.find(w => w.name === ws.name);
-        if (!existing) {
-          await invoke('create_workspace', { name: ws.name, directory: ws.directory });
-        }
-      }
-      await loadWorkspaces();
-      showToast('Session restored', `${session.workspaces.length} workspaces`, 'normal');
-    }
-  } catch (e) {
-    console.error('[wmux] load_session failed:', e);
-  }
-}
-
-// Auto-save after workspace mutations (debounced)
-let saveTimer = null;
-function scheduleAutoSave() {
-  if (saveTimer) clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveSessionNow, 2000); // Save 2s after last change
-}
 
 // ===== Init =====
 
@@ -526,10 +528,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.warn('[wmux] Backend not available, using mocks');
   }
 
-  // Restore previous session first
-  await restoreSession();
-
-  // Load workspaces
+// Restore session then load workspaces
+const restored = await loadSession();
   await loadWorkspaces();
 
   // Set first workspace active if none is
@@ -545,14 +545,15 @@ window.addEventListener('DOMContentLoaded', async () => {
   console.log('[wmux] Ready. Workspaces:', state.workspaces.length);
 });
 
-// Save session on window close
-window.addEventListener('beforeunload', () => { saveSessionNow(); });
-
 // Export for inline onclick handlers
 window.switchToWorkspace = switchToWorkspace;
 window.workspaceContextMenu = workspaceContextMenu;
 window.executePaletteCommand = executePaletteCommand;
 window.toggleCommandPalette = toggleCommandPalette;
 window.promptNewWorkspace = promptNewWorkspace;
+
+window.addEventListener('beforeunload', () => {
+  try { invoke('save_session'); } catch (_) {}
+});
 
 })();
