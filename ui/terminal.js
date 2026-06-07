@@ -147,11 +147,18 @@ function setupPtyListener() {
     }
   });
 
-  TAURI.event.listen('agent_waiting', (event) => {
-    const { pty_id, workspace_id, title, body } = event.payload;
-    if (window.showToast) window.showToast(title, body, 'normal');
-    if (window.__wmux_incrementUnread) window.__wmux_incrementUnread(workspace_id);
-  });
+TAURI.event.listen('agent_waiting', (event) => {
+      const { pty_id, workspace_id, title, body } = event.payload;
+      if (window.showToast) window.showToast(title, body, 'normal');
+      if (window.__wmux_incrementUnread) window.__wmux_incrementUnread(workspace_id);
+      for (const [containerId, entry] of Object.entries(terminals)) {
+        if (entry.ptyId === pty_id) {
+          const pane = document.getElementById(containerId);
+          if (pane) pane.closest('.pane')?.classList.add('waiting');
+          break;
+        }
+      }
+    });
 }
 
 // ===== Split pane =====
@@ -186,15 +193,15 @@ function splitRight() {
 
 pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
 pane.addEventListener('mousedown', () => {
-document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
-pane.classList.add('focused');
-if (window.PaneManager) window.PaneManager.focusedId = pane.id;
+    document.querySelectorAll('.pane').forEach(p => { p.classList.remove('focused'); p.classList.remove('waiting'); });
+    pane.classList.add('focused');
+    if (window.PaneManager) window.PaneManager.focusedId = pane.id;
 });
 
-        row.appendChild(handle);
-  row.appendChild(pane);
+row.appendChild(handle);
+row.appendChild(pane);
 
-  // Setup resize handle
+// Setup resize handle
   setupSingleResizeH(handle);
 
   setTimeout(() => createTerminal(xtermId, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default'), 100);
@@ -236,11 +243,11 @@ function splitDown() {
     `;
 
     const newPane = newRow.querySelector('.pane');
-    newPane.addEventListener('mousedown', () => {
-      document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
-      newPane.classList.add('focused');
-      if (window.PaneManager) window.PaneManager.focusedId = newPane.id;
-    });
+newPane.addEventListener('mousedown', () => {
+    document.querySelectorAll('.pane').forEach(p => { p.classList.remove('focused'); p.classList.remove('waiting'); });
+    newPane.classList.add('focused');
+    if (window.PaneManager) window.PaneManager.focusedId = newPane.id;
+});
 
     grid.appendChild(handle);
     grid.appendChild(newRow);
@@ -590,12 +597,11 @@ async function restorePaneLayout(layout) {
         <div class="xterm-container" id="${xtermId}"></div>
       `;
       pane.querySelector('.pane-close-btn').addEventListener('click', (ev) => { ev.stopPropagation(); closePane(pane); });
-      pane.addEventListener('mousedown', () => {
-        document.querySelectorAll('.pane').forEach(p => p.classList.remove('focused'));
-        pane.classList.add('focused');
-        if (window.PaneManager) window.PaneManager.focusedId = pane.id;
-      });
-      row.appendChild(pane);
+pane.addEventListener('mousedown', () => {
+    document.querySelectorAll('.pane').forEach(p => { p.classList.remove('focused'); p.classList.remove('waiting'); });
+    pane.classList.add('focused');
+    if (window.PaneManager) window.PaneManager.focusedId = pane.id;
+});
 
 const cwd = paneData.cwd || null;
     setTimeout(() => createTerminal(xtermId, cwd, window.__wmux_activeWorkspaceId || 'default'), 50 + (ri * rowData.panes.length + pi) * 100);
