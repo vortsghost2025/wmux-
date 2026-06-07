@@ -4,8 +4,24 @@
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::Mutex;
 use uuid::Uuid;
+
+fn detect_git_branch(directory: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(directory)
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !branch.is_empty() && branch != "HEAD" {
+            return Some(branch);
+        }
+    }
+    None
+}
 
 // ===== Types =====
 
@@ -54,11 +70,12 @@ pub fn create_workspace(name: String, directory: String) -> Result<Workspace, St
     let mut workspaces = WORKSPACES.lock().map_err(|e| e.to_string())?;
     let is_first = workspaces.is_empty();
 
+    let git_branch = detect_git_branch(&directory);
     let ws = Workspace {
         id: id.clone(),
         name,
         directory,
-        git_branch: None,
+        git_branch,
         git_pr: None,
         agents: vec![],
         listening_ports: vec![],
@@ -124,6 +141,7 @@ pub fn switch_workspace(workspace_id: String) -> Result<(), String> {
     if let Some(ws) = workspaces.get_mut(&workspace_id) {
         ws.is_active = true;
         ws.unread_count = 0;
+        ws.git_branch = detect_git_branch(&ws.directory);
     }
     *active = Some(workspace_id);
 
