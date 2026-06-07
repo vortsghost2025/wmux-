@@ -23,15 +23,14 @@ pub struct Notification {
 static NOTIFICATIONS: Lazy<Mutex<Vec<Notification>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static UNREAD_COUNTS: Lazy<Mutex<HashMap<String, u32>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
-// ===== Commands =====
+// ===== Internal API (callable from any thread, no AppHandle needed) =====
 
-#[tauri::command]
-pub fn send_notification(
+pub fn push_notification(
     workspace_id: String,
     title: String,
     body: String,
     urgency: String,
-) -> Result<Notification, String> {
+) -> Notification {
     let notification = Notification {
         id: Uuid::new_v4().to_string(),
         workspace_id: workspace_id.clone(),
@@ -42,13 +41,14 @@ pub fn send_notification(
         read: false,
     };
 
-    let mut notifs = NOTIFICATIONS.lock().map_err(|e| e.to_string())?;
-    notifs.push(notification.clone());
+    if let Ok(mut notifs) = NOTIFICATIONS.lock() {
+        notifs.push(notification.clone());
+    }
 
-    let mut counts = UNREAD_COUNTS.lock().map_err(|e| e.to_string())?;
-    *counts.entry(workspace_id.clone()).or_insert(0) += 1;
+    if let Ok(mut counts) = UNREAD_COUNTS.lock() {
+        *counts.entry(workspace_id.clone()).or_insert(0) += 1;
+    }
 
-    // System toast for high/critical
     if urgency == "high" || urgency == "critical" {
         fire_system_toast(&title, &body);
     }
@@ -60,7 +60,19 @@ pub fn send_notification(
         title,
         body
     );
-    Ok(notification)
+    notification
+}
+
+// ===== Commands =====
+
+#[tauri::command]
+pub fn send_notification(
+    workspace_id: String,
+    title: String,
+    body: String,
+    urgency: String,
+) -> Result<Notification, String> {
+    Ok(push_notification(workspace_id, title, body, urgency))
 }
 
 #[tauri::command]
@@ -84,6 +96,7 @@ pub fn get_all_notifications() -> Result<Vec<Notification>, String> {
 }
 
 /// Find the workspace with the most recent unread notification
+#[allow(dead_code)]
 pub fn latest_unread_workspace() -> Option<String> {
     let notifs = NOTIFICATIONS.lock().ok()?;
     notifs

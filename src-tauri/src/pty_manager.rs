@@ -7,6 +7,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
+use crate::notifications;
+
 #[cfg(target_os = "windows")]
 const DEFAULT_SHELL: &str = "powershell.exe";
 #[cfg(not(target_os = "windows"))]
@@ -17,6 +19,7 @@ const READ_BUF_SIZE: usize = 4096;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PtyInfo {
     pub id: String,
+    pub workspace_id: String,
     pub cwd: String,
     pub cols: u16,
     pub rows: u16,
@@ -36,6 +39,14 @@ struct PtyExitPayload {
     code: i32,
 }
 
+#[derive(Clone, Serialize)]
+struct AgentWaitingPayload {
+    pty_id: String,
+    workspace_id: String,
+    title: String,
+    body: String,
+}
+
 struct PtyEntry {
     info: PtyInfo,
     writer: Option<Box<dyn Write + Send>>,
@@ -49,6 +60,7 @@ static PTYS: Lazy<Mutex<HashMap<String, PtyEntry>>> =
 #[tauri::command]
 pub fn create_pty(
     app: AppHandle,
+    workspace_id: String,
     cwd: String,
     cols: u16,
     rows: u16,
@@ -87,6 +99,7 @@ pub fn create_pty(
 
     let info = PtyInfo {
         id: id.clone(),
+        workspace_id: workspace_id.clone(),
         cwd,
         cols,
         rows,
@@ -100,8 +113,9 @@ pub fn create_pty(
 
     let app_for_thread = app.clone();
     let id_for_thread = id.clone();
+    let ws_for_thread = workspace_id.clone();
     std::thread::spawn(move || {
-        reader_thread(app_for_thread, id_for_thread, reader, child_for_thread);
+        reader_thread(app_for_thread, id_for_thread, ws_for_thread, reader, child_for_thread);
     });
 
     let entry = PtyEntry {
@@ -130,6 +144,7 @@ pub fn create_pty(
 fn reader_thread(
     app: AppHandle,
     pty_id: String,
+    workspace_id: String,
     mut reader: Box<dyn Read + Send>,
     child: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>>,
 ) {
@@ -142,6 +157,25 @@ fn reader_thread(
             Ok(n) => {
                 total_bytes += n;
                 let data = String::from_utf8_lossy(&buf[..n]).into_owned();
+
+                    if let Some((title, body)) = parse_osc(&buf[..n]) {
+                        notifications::push_notification(
+                            workspace_id.clone(),
+                            title.clone(),
+                            body.clone(),
+                            "normal".to_string(),
+                        );
+                        let _ = app.emit(
+                            "agent_waiting",
+                            AgentWaitingPayload {
+                                pty_id: pty_id.clone(),
+                                workspace_id: workspace_id.clone(),
+                                title,
+                                body,
+                        },
+                    );
+                }
+
                 let _ = app.emit(
                     "pty_data",
                     PtyDataPayload {
@@ -356,14 +390,15 @@ mod tests {
 
     #[test]
     fn test_pty_info_serde() {
-        let info = PtyInfo {
-            id: "test-id".to_string(),
-            cwd: "C:\\test".to_string(),
-            cols: 80,
-            rows: 24,
-            alive: true,
-            shell: "powershell.exe".to_string(),
-        };
+    let info = PtyInfo {
+        id: "test-id".to_string(),
+        workspace_id: "ws-test".to_string(),
+        cwd: "C:\\test".to_string(),
+        cols: 80,
+        rows: 24,
+        alive: true,
+        shell: "powershell.exe".to_string(),
+    };
         let json = serde_json::to_string(&info).unwrap();
         let back: PtyInfo = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id, "test-id");

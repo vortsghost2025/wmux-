@@ -23,6 +23,7 @@ pub struct WaveBridgeStatus {
     pub connected: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WaveRequest {
     pub id: String,
@@ -30,6 +31,7 @@ pub struct WaveRequest {
     pub params: serde_json::Value,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct WaveResponse {
     pub id: String,
@@ -37,6 +39,7 @@ pub struct WaveResponse {
     pub data: serde_json::Value,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TerminalCapture {
     pub pane_id: String,
