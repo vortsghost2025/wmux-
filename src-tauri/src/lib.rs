@@ -1,16 +1,18 @@
+mod ipc;
 mod notifications;
 mod pty_manager;
 mod session;
 mod wave_bridge;
 mod workspace;
 
+use ipc::{ipc_status, set_app_handle, start_ipc_server};
 use notifications::{get_all_notifications, mark_read, send_notification};
 use pty_manager::{close_pty, create_pty, list_ptys, resize_pty, write_pty};
 use session::{load_session, save_session};
 use wave_bridge::{wave_ask_all, wave_bridge_status, wave_send_command};
 use workspace::{
-    create_workspace, get_workspace, list_workspaces, remove_workspace, rename_workspace,
-    report_agent_status, switch_workspace, update_git_info,
+    create_workspace, detect_listening_ports, get_workspace, list_workspaces, remove_workspace,
+    rename_workspace, report_agent_status, switch_workspace, update_git_info,
 };
 
 use tauri::Manager;
@@ -27,6 +29,8 @@ pub fn run() {
             window.set_title("wmux").ok();
             eprintln!("[wmux] Starting up...");
             eprintln!("[wmux] Agent-aware terminal multiplexer for Windows");
+            set_app_handle(app.handle().clone());
+            start_ipc_server();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -40,6 +44,7 @@ pub fn run() {
             remove_workspace,
             report_agent_status,
             update_git_info,
+            detect_listening_ports,
             // PTY commands
             create_pty,
             write_pty,
@@ -57,6 +62,8 @@ pub fn run() {
             wave_bridge_status,
             wave_send_command,
             wave_ask_all,
+            // IPC commands
+            ipc_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building wmux")

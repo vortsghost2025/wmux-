@@ -352,6 +352,30 @@ document.addEventListener('keydown', (e) => {
     splitPane('down');
     return;
   }
+  // Ctrl+= / Ctrl++ — Increase font size
+  if (e.ctrlKey && !e.shiftKey && (e.key === '=' || e.key === '+')) {
+    e.preventDefault();
+    if (window.adjustFontSize) window.adjustFontSize(2);
+    return;
+  }
+  // Ctrl+- — Decrease font size
+  if (e.ctrlKey && !e.shiftKey && e.key === '-') {
+    e.preventDefault();
+    if (window.adjustFontSize) window.adjustFontSize(-2);
+    return;
+  }
+  // Ctrl+0 — Reset font size
+  if (e.ctrlKey && !e.shiftKey && e.key === '0') {
+    e.preventDefault();
+    if (window.resetFontSize) window.resetFontSize();
+    return;
+  }
+  // Ctrl+Scroll — Adjust font size
+  if (e.ctrlKey && e.type === 'wheel') {
+    e.preventDefault();
+    if (window.adjustFontSize) window.adjustFontSize(e.deltaY > 0 ? -2 : 2);
+    return;
+  }
   // Palette navigation
   if (state.commandPaletteOpen) {
     if (e.key === 'Enter') {
@@ -399,6 +423,12 @@ function renderSidebar() {
             <div class="ws-meta-row">
               <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M11.75 2.5a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-1.5 0V3.25a.75.75 0 0 1 .75-.75Zm-8.5 0a.75.75 0 0 1 .75.75v5.5a.75.75 0 0 1-1.5 0v-5.5a.75.75 0 0 1 .75-.75Zm4.25 0a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5a.75.75 0 0 1 .75-.75Z"/></svg>
               <span class="branch">${ws.git_branch}</span>
+            </div>
+          ` : ''}
+          ${ws.listening_ports?.length > 0 ? `
+            <div class="ws-meta-row">
+              <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12"><path d="M8 2.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM2 8a6 6 0 1 0 12 0A6 6 0 0 0 2 8Zm0 1a7 7 0 1 1 14 0A7 7 0 0 1 2 9Z"/></svg>
+              <span class="ports">${ws.listening_ports.join(', ')}</span>
             </div>
           ` : ''}
           ${agentLine ? `
