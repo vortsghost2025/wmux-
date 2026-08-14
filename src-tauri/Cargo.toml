@@ -7,10 +7,15 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/vortsghost2025/wmux-"
 edition = "2021"
 rust-version = "1.77.2"
+default-run = "wmux"
 
 [lib]
 name = "wmux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "wmux-cli"
+path = "src/cli.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -32,6 +37,15 @@ once_cell = "1"
 
 # PTY support (conpty on Windows, Unix PTY on Linux/Mac)
 portable-pty = "0.8"
+
+# IPC named pipe support
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_IO",
+    "Win32_Security",
+], cfg = "target_os = \"windows\"" }
 
 # Filesystem watcher for Wave bridge
 # notify = "7"

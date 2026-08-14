@@ -8,6 +8,7 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 use crate::notifications;
+use crate::workspace;
 
 #[cfg(target_os = "windows")]
 const DEFAULT_SHELL: &str = "powershell.exe";
@@ -52,6 +53,7 @@ struct PtyEntry {
     writer: Option<Box<dyn Write + Send>>,
     master: Option<Box<dyn MasterPty + Send>>,
     child: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>>,
+    child_pid: u32,
 }
 
 static PTYS: Lazy<Mutex<HashMap<String, PtyEntry>>> =
@@ -107,6 +109,8 @@ pub fn create_pty(
         shell: DEFAULT_SHELL.to_string(),
     };
 
+    let child_pid: u32 = child.process_id().unwrap_or(0);
+
     let child_arc: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>> =
         Arc::new(Mutex::new(Some(child)));
     let child_for_thread = Arc::clone(&child_arc);
@@ -123,6 +127,7 @@ pub fn create_pty(
         writer: Some(writer),
         master: Some(pair.master),
         child: child_arc,
+        child_pid,
     };
 
     {
@@ -158,7 +163,9 @@ fn reader_thread(
                 total_bytes += n;
                 let data = String::from_utf8_lossy(&buf[..n]).into_owned();
 
-                    if let Some((title, body)) = parse_osc(&buf[..n]) {
+                workspace::upsert_agent_from_output(&workspace_id, &data);
+
+                if let Some((title, body)) = parse_osc(&buf[..n]) {
                         notifications::push_notification(
                             workspace_id.clone(),
                             title.clone(),
@@ -317,6 +324,14 @@ pub fn kill_all() {
 pub fn list_ptys() -> Result<Vec<PtyInfo>, String> {
     let ptys = PTYS.lock().map_err(|e| e.to_string())?;
     Ok(ptys.values().map(|e| e.info.clone()).collect())
+}
+
+pub fn get_workspace_pids(workspace_id: &str) -> Vec<u32> {
+    let Ok(ptys) = PTYS.lock() else { return Vec::new() };
+    ptys.values()
+        .filter(|e| e.info.workspace_id == workspace_id && e.info.alive && e.child_pid != 0)
+        .map(|e| e.child_pid)
+        .collect()
 }
 
 pub fn parse_osc(data: &[u8]) -> Option<(String, String)> {

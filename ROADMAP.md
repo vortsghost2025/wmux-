@@ -4,28 +4,28 @@
 - [x] Project scaffold (Tauri v2 + Rust)
 - [x] UI prototype (HTML/CSS mockup)
 - [x] Architecture design
-- [ ] **xterm.js integration** — terminal rendering in WebView2
-- [ ] **conpty PTY backend** — spawn PowerShell/cmd via Windows conpty API
-- [ ] **PTY ↔ xterm.js bridge** — Tauri events for bidirectional data flow
-- [ ] Basic split pane layout (horizontal + vertical)
-- [ ] Workspace model (create, switch, close)
+- [x] **xterm.js integration** — terminal rendering in WebView2
+- [x] **conpty PTY backend** — spawn PowerShell via portable-pty
+- [x] **PTY ↔ xterm.js bridge** — Tauri events for bidirectional data flow
+- [x] Basic split pane layout (horizontal + vertical)
+- [x] Workspace model (create, switch, close)
 
 ## Phase 2: Sidebar & Workspaces (Week 2-3)
-- [ ] Vertical sidebar with workspace list
-- [ ] Git branch detection per workspace
+- [x] Vertical sidebar with workspace list
+- [x] Git branch detection per workspace
 - [ ] Listening port detection (`netstat` parsing)
-- [ ] Workspace persistence (save/load)
+- [x] Workspace persistence (save/load)
 - [ ] Tab bar within workspaces (surfaces)
-- [ ] Keyboard shortcuts (Ctrl+1-9, Ctrl+T, Ctrl+D, etc.)
+- [x] Keyboard shortcuts (Ctrl+1-9, Ctrl+D, Ctrl+Shift+D, etc.)
 
 ## Phase 3: Agent Awareness (Week 3-4)
-- [ ] **OSC sequence parser** — detect notifications from terminal output
+- [x] **OSC sequence parser** — detect notifications from terminal output
 - [ ] **Agent detection heuristics** — recognize Claude, Kilo, GLM, Copilot patterns
-- [ ] Blue ring effect on waiting agents
-- [ ] Unread counter per workspace
+- [x] Blue ring effect on waiting agents
+- [x] Unread counter per workspace
 - [ ] `wmux notify` CLI command
-- [ ] Windows Toast notifications for high-urgency
-- [ ] Jump to latest unread (Ctrl+Shift+U)
+- [x] Windows Toast notifications for high-urgency
+- [x] Jump to latest unread (Ctrl+Shift+U)
 
 ## Phase 4: CLI & IPC (Week 4-5)
 - [ ] Named pipe IPC server

@@ -628,4 +628,27 @@ window.capturePaneLayout = capturePaneLayout;
 window.restorePaneLayout = restorePaneLayout;
 window.terminals = terminals;
 
+function setFontSize(size) {
+  Object.values(terminals).forEach(entry => {
+    entry.term.options.fontSize = size;
+    entry.term.refresh(0, entry.term.rows - 1);
+  });
+}
+
+function adjustFontSize(delta) {
+  const entry = Object.values(terminals)[0];
+  if (!entry) return;
+  const current = entry.term.options.fontSize || 14;
+  const newSize = Math.max(8, Math.min(32, current + delta));
+  setFontSize(newSize);
+}
+
+function resetFontSize() {
+  setFontSize(14);
+}
+
+window.setFontSize = setFontSize;
+window.adjustFontSize = adjustFontSize;
+window.resetFontSize = resetFontSize;
+
 })();

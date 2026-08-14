@@ -23,6 +23,100 @@ fn detect_git_branch(directory: &str) -> Option<String> {
     None
 }
 
+fn detect_agent_from_output(output: &str) -> Option<AgentInfo> {
+    let lower = output.to_lowercase();
+    if lower.contains("claude") || lower.contains("anthropic") {
+        return Some(AgentInfo {
+            name: "Claude".to_string(),
+            status: "running".to_string(),
+            pane_id: None,
+            elapsed_secs: None,
+        });
+    }
+    if lower.contains("kilo") {
+        return Some(AgentInfo {
+            name: "Kilo".to_string(),
+            status: "running".to_string(),
+            pane_id: None,
+            elapsed_secs: None,
+        });
+    }
+    if lower.contains("glm") || lower.contains("z.ai") {
+        return Some(AgentInfo {
+            name: "GLM".to_string(),
+            status: "running".to_string(),
+            pane_id: None,
+            elapsed_secs: None,
+        });
+    }
+    if lower.contains("copilot") || lower.contains("github copilot") {
+        return Some(AgentInfo {
+            name: "Copilot".to_string(),
+            status: "running".to_string(),
+            pane_id: None,
+            elapsed_secs: None,
+        });
+    }
+    if lower.contains("cursor") && lower.contains("agent") {
+        return Some(AgentInfo {
+            name: "Cursor".to_string(),
+            status: "running".to_string(),
+            pane_id: None,
+            elapsed_secs: None,
+        });
+    }
+    None
+}
+
+fn detect_listening_ports_internal(workspace_id: &str) -> Vec<u16> {
+    let pids = crate::pty_manager::get_workspace_pids(workspace_id);
+    if pids.is_empty() {
+        return vec![];
+    }
+
+    let output = match Command::new("netstat").args(["-ano"]).output() {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+
+    if !output.status.success() {
+        return vec![];
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut ports = Vec::new();
+
+    for line in text.lines() {
+        if !line.contains("LISTENING") {
+            continue;
+        }
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() < 5 {
+            continue;
+        }
+        let local_addr = parts[1];
+        let pid_str = parts[4];
+        let pid: u32 = match pid_str.parse() {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        if !pids.contains(&pid) {
+            continue;
+        }
+        if let Some(port_str) = local_addr.rsplit(':').next() {
+            if let Ok(port) = port_str.parse::<u16>() {
+                if port > 0 {
+                    ports.push(port);
+                }
+            }
+        }
+    }
+
+    ports.sort();
+    ports.dedup();
+    ports
+}
+
 // ===== Types =====
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -142,6 +236,7 @@ pub fn switch_workspace(workspace_id: String) -> Result<(), String> {
         ws.is_active = true;
         ws.unread_count = 0;
         ws.git_branch = detect_git_branch(&ws.directory);
+        ws.listening_ports = detect_listening_ports_internal(&workspace_id);
     }
     *active = Some(workspace_id);
 
@@ -208,6 +303,18 @@ pub fn report_agent_status(
     Ok(())
 }
 
+pub fn upsert_agent_from_output(workspace_id: &str, output: &str) {
+    if let Some(agent) = detect_agent_from_output(output) {
+        let Ok(mut workspaces) = WORKSPACES.lock() else { return };
+        if let Some(ws) = workspaces.get_mut(workspace_id) {
+            if !ws.agents.iter().any(|a| a.name == agent.name) {
+                ws.agents.push(agent);
+                log::info!("[workspace] Auto-detected agent in {}: {}", ws.name, ws.agents.last().unwrap().name);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn update_git_info(
     workspace_id: String,
@@ -232,6 +339,16 @@ pub fn update_git_info(
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub fn detect_listening_ports(workspace_id: String) -> Result<Vec<u16>, String> {
+    let ports = detect_listening_ports_internal(&workspace_id);
+    let mut workspaces = WORKSPACES.lock().map_err(|e| e.to_string())?;
+    if let Some(ws) = workspaces.get_mut(&workspace_id) {
+        ws.listening_ports = ports.clone();
+    }
+    Ok(ports)
 }
 
 #[cfg(test)]
