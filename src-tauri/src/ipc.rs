@@ -171,7 +171,7 @@ fn ipc_server_unix(socket_path: &str) {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
-                use std::io::{Read, Write, BufReader};
+                use std::io::{BufRead, BufReader, Write};
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
                 if reader.read_line(&mut line).is_ok() {
