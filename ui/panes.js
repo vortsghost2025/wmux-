@@ -91,34 +91,32 @@ const PaneManager = {
 
   wrapAndSplit(parent, leafNode, direction, newLeafId) {
     const isHorizontal = direction === 'right';
-    const grandParent = parent.parent;
-    const parentIdx = grandParent ? grandParent.children.indexOf(parent) : -1;
-
     const newSplitNode = {
       type: 'split',
       direction: isHorizontal ? 'horizontal' : 'vertical',
-      children: [leafNode, {
-        type: 'leaf',
-        id: newLeafId,
-        containerId: 'xterm-' + (this.nextId++),
-        paneType: leafNode.paneType,
-        ratio: 0.5,
-        parent: null,
-      }],
+      children: [],
       ratio: 0.5,
-      parent: grandParent,
+      parent: parent.parent,
     };
 
+    // Insert newSplitNode at leafNode's position in parent.children
+    const leafIndex = parent.children.indexOf(leafNode);
+    parent.children[leafIndex] = newSplitNode;
+    newSplitNode.parent = parent;
+
+    // Add the two children (original leaf and new leaf)
+    newSplitNode.children[0] = leafNode;
     leafNode.parent = newSplitNode;
-    newSplitNode.children[1].parent = newSplitNode;
 
-    if (grandParent) {
-      grandParent.children[parentIdx] = newSplitNode;
-    } else {
-      this.root = newSplitNode;
-    }
+    newSplitNode.children[1] = {
+      type: 'leaf',
+      id: newLeafId,
+      containerId: 'xterm-' + (this.nextId++),
+      paneType: leafNode.paneType,
+      ratio: 0.5,
+      parent: newSplitNode,
+    };
 
-    parent.parent = newSplitNode;
     this.renderTree();
   },
 
@@ -146,15 +144,20 @@ const PaneManager = {
     if (!parent || parent.type === 'root') {
       // Last pane - don't close, just clear
       const entry = window.terminals?.[leafNode.containerId];
-      if (entry) {
-        entry.ro?.disconnect();
-        entry.term?.dispose();
-        delete window.terminals[leafNode.containerId];
+      if (entry && entry.term) {
+        // Close the backend PTY first
+        if (window.closeTerminal) {
+          window.closeTerminal(leafNode.containerId);
+        } else {
+          entry.ro?.disconnect();
+          entry.term?.dispose();
+          delete window.terminals[leafNode.containerId];
+        }
       }
       setTimeout(() => {
         const container = document.getElementById(leafNode.containerId);
         if (container) container.innerHTML = '';
-        window.createTerminal(leafNode.containerId, 'S:\\\\wmux-', window.__wmux_activeWorkspaceId || 'default');
+        window.createTerminal(leafNode.containerId, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default');
       }, 50);
       return;
     }
@@ -162,12 +165,16 @@ const PaneManager = {
     const sibling = parent.children.find(c => c.id !== leafId);
     const grandParent = parent.parent;
 
-    // Clean up terminal
+    // Close the backend PTY first
     const entry = window.terminals?.[leafNode.containerId];
-    if (entry) {
-      entry.ro?.disconnect();
-      entry.term?.dispose();
-      delete window.terminals[leafNode.containerId];
+    if (entry && entry.term) {
+      if (window.closeTerminal) {
+        window.closeTerminal(leafNode.containerId);
+      } else {
+        entry.ro?.disconnect();
+        entry.term?.dispose();
+        delete window.terminals[leafNode.containerId];
+      }
     }
 
     if (grandParent) {
@@ -222,7 +229,7 @@ const PaneManager = {
       <div class="pane-header">
         <div class="pane-header-left">
           <span class="agent-badge ${badgeClass}">${label}</span>
-          <span class="pane-cwd">S:\\wmux-</span>
+          <span class="pane-cwd">S:\wmux-</span>
         </div>
         <button class="pane-close-btn" title="Close (Ctrl+W)">✕</button>
       </div>
@@ -248,7 +255,7 @@ const PaneManager = {
     // Create terminal after a brief delay
     if (node.paneType !== 'browser') {
       setTimeout(() => {
-        window.createTerminal(node.containerId, 'S:\\\\wmux-', window.__wmux_activeWorkspaceId || 'default');
+        window.createTerminal(node.containerId, 'S:\\wmux-', window.__wmux_activeWorkspaceId || 'default');
       }, 50);
     }
 
@@ -326,6 +333,18 @@ const PaneManager = {
         document.body.style.userSelect = '';
         document.removeEventListener('mousemove', onMove);
         document.removeEventListener('mouseup', onUp);
+        
+        // Persist the new ratios to the tree model
+        const prevNodeId = prevChild.dataset.splitId || prevChild.dataset.leafId;
+        const nextNodeId = nextChild.dataset.splitId || nextChild.dataset.leafId;
+        if (prevNodeId && nextNodeId && node.children) {
+          const prevNode = node.children.find(c => c.id === prevNodeId);
+          const nextNode = node.children.find(c => c.id === nextNodeId);
+          if (prevNode && nextNode) {
+            prevNode.ratio = newPrev / (newPrev + newNext);
+            nextNode.ratio = newNext / (newPrev + newNext);
+          }
+        }
       };
 
       document.addEventListener('mousemove', onMove);
@@ -348,11 +367,18 @@ const PaneManager = {
   focusLeaf(leafId) {
     Object.values(this.leaves).forEach(l => {
       l.element?.classList.remove('focused');
+      // Remove waiting class if present
+      l.element?.classList.remove('waiting');
     });
     const leaf = this.leaves[leafId];
     if (leaf) {
       leaf.element.classList.add('focused');
       this.focusedLeafId = leafId;
+      // Focus the terminal element if it exists
+      const termContainer = leaf.element.querySelector('.xterm-container');
+      if (termContainer && termContainer.querySelector('textarea')) {
+        termContainer.querySelector('textarea').focus();
+      }
     }
   },
 
@@ -401,8 +427,26 @@ const PaneManager = {
 
   restoreLayout(layout) {
     if (!layout) return;
+    
+    // Dispose all existing terminals first to prevent leaks
+    if (window.terminals) {
+      Object.keys(window.terminals).forEach(id => {
+        const entry = window.terminals[id];
+        if (entry && entry.term) {
+          if (window.closeTerminal) {
+            window.closeTerminal(id);
+          } else {
+            entry.ro?.disconnect();
+            entry.term?.dispose();
+            delete window.terminals[id];
+          }
+        }
+      });
+    }
+    
     this.nextId = 1;
     this.leaves = {};
+    this.focusedLeafId = null;
     this.root = this._restoreNode(layout);
     this.renderTree();
   },

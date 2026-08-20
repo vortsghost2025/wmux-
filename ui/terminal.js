@@ -10,7 +10,6 @@ const WebglAddonClass = window.WebglAddon?.WebglAddon;
 const WebLinksAddonClass = window.WebLinksAddon?.WebLinksAddon;
 
 const terminals = {};
-let globalPaneCounter = 0;
 
 const WMUX_THEME = {
   background: '#0d1117',
@@ -86,7 +85,7 @@ async function createTerminal(containerId, cwd, workspaceId) {
   if (isTauri) {
     try {
       const info = await TAURI.core.invoke('create_pty', {
-        cwd: cwd || 'C:\\\\Users\\\\seand',
+        cwd: cwd || 'C:\\Users\\seand',
         cols: term.cols,
         rows: term.rows,
         workspaceId: workspaceId || 'default',
@@ -178,9 +177,31 @@ function closeTerminal(containerId) {
 
 // ===== Expose globally =====
 
+let globalFontSize = 14;
+
+function adjustFontSize(delta) {
+  globalFontSize = Math.max(10, Math.min(24, globalFontSize + delta));
+  if (window.terminals) {
+    Object.values(window.terminals).forEach(entry => {
+      if (entry && entry.term) {
+        entry.term.options.fontSize = globalFontSize;
+        if (entry.fitAddon) {
+          try { entry.fitAddon.fit(); } catch(e) {}
+        }
+      }
+    });
+  }
+}
+
+function resetFontSize() {
+  adjustFontSize(14 - globalFontSize);
+}
+
 window.terminals = terminals;
 window.createTerminal = createTerminal;
 window.closeTerminal = closeTerminal;
+window.adjustFontSize = adjustFontSize;
+window.resetFontSize = resetFontSize;
 
 // ===== Init =====
 
