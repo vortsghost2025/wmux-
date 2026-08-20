@@ -1,14 +1,26 @@
+mod intelligence;
 mod ipc;
 mod notifications;
 mod pty_manager;
+mod recorder;
 mod session;
+mod sync_groups;
 mod wave_bridge;
 mod workspace;
 
+use intelligence::{get_workspace_activity, predict_next_focus};
 use ipc::{ipc_status, set_app_handle, start_ipc_server};
 use notifications::{get_all_notifications, mark_read, send_notification};
 use pty_manager::{close_pty, create_pty, list_ptys, resize_pty, write_pty};
+use recorder::{
+    delete_recording, export_recording, get_recording, import_recording, list_recordings,
+    replay_recording, start_recording, stop_recording,
+};
 use session::{load_session, save_session};
+use sync_groups::{
+    add_pane_to_sync, broadcast_to_sync_group, create_sync_group, delete_sync_group,
+    execute_staged_command, list_sync_groups, remove_pane_from_sync, toggle_sync_group,
+};
 use wave_bridge::{wave_ask_all, wave_bridge_status, wave_send_command};
 use workspace::{
     create_workspace, detect_listening_ports, get_workspace, list_workspaces, remove_workspace,
@@ -64,6 +76,27 @@ pub fn run() {
             wave_ask_all,
             // IPC commands
             ipc_status,
+            // Intelligence commands
+            predict_next_focus,
+            get_workspace_activity,
+            // Sync group commands
+            create_sync_group,
+            add_pane_to_sync,
+            remove_pane_from_sync,
+            toggle_sync_group,
+            delete_sync_group,
+            list_sync_groups,
+            broadcast_to_sync_group,
+            execute_staged_command,
+            // Recorder commands
+            start_recording,
+            stop_recording,
+            list_recordings,
+            get_recording,
+            export_recording,
+            import_recording,
+            delete_recording,
+            replay_recording,
         ])
         .build(tauri::generate_context!())
         .expect("error while building wmux")

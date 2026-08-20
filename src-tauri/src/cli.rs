@@ -11,7 +11,7 @@ use windows::core::PCWSTR;
 
 #[cfg(not(target_os = "windows"))]
 use std::os::unix::net::UnixStream;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
 
 fn pipe_name() -> String {
     if cfg!(target_os = "windows") {
