@@ -79,25 +79,32 @@
   /* MAIN */
   .main { flex:1; display:flex; flex-direction:column; overflow:hidden; min-width:0; }
 
-  /* PANE GRID — simple, just terminals */
-  .pane-grid { flex:1; display:flex; flex-direction:column; overflow:hidden; }
-  .pane-row { display:flex; flex:1; overflow:hidden; min-height:0; }
-
-  .pane { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; min-width:0; min-height:0; border:1px solid var(--border); }
-  .pane.focused { border-color:var(--accent); }
-.pane.waiting { border-color:var(--ring-blue); box-shadow:0 0 0 2px var(--ring-blue),0 0 14px var(--ring-glow); animation:wmux-pulse 2s ease-in-out infinite; }
-@keyframes wmux-pulse { 0%,100%{box-shadow:0 0 0 2px var(--ring-blue),0 0 14px var(--ring-glow)} 50%{box-shadow:0 0 0 2px var(--ring-blue),0 0 6px var(--ring-glow)} }
+  /* PANE GRID — recursive split tree container */
+  .pane-grid { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; }
+  .pane-node { display:flex; overflow:hidden; min-width:0; min-height:0; }
+  .pane-node.horizontal { flex-direction:row; }
+  .pane-node.vertical { flex-direction:column; }
+  
+  .pane-leaf { flex:1; display:flex; flex-direction:column; overflow:hidden; position:relative; min-width:0; min-height:0; border:1px solid var(--border); background:var(--bg-primary); }
+  .pane-leaf.focused { border-color:var(--accent); }
+  .pane-leaf.waiting { border-color:var(--ring-blue); box-shadow:0 0 0 2px var(--ring-blue),0 0 14px var(--ring-glow); animation:wmux-pulse 2s ease-in-out infinite; }
+  @keyframes wmux-pulse { 0%,100%{box-shadow:0 0 0 2px var(--ring-blue),0 0 14px var(--ring-glow)} 50%{box-shadow:0 0 0 2px var(--ring-blue),0 0 6px var(--ring-glow)} }
+  
+  .resize-handle { flex-shrink:0; background:var(--border); transition:background 0.15s; z-index:10; }
+  .resize-handle:hover, .resize-handle.active { background:var(--accent); }
+  .resize-handle.horizontal { width:5px; min-width:5px; cursor:col-resize; }
+  .resize-handle.vertical { height:5px; min-height:5px; cursor:row-resize; }
   .pane-header { display:flex; align-items:center; justify-content:space-between; padding:3px 8px; background:var(--bg-secondary); border-bottom:1px solid var(--border); font-size:11px; color:var(--text-secondary); min-height:24px; flex-shrink:0; }
   .pane-header-left { display:flex; align-items:center; gap:6px; }
   .agent-badge { display:inline-flex; padding:1px 6px; border-radius:4px; font-size:10px; font-weight:600; }
   .agent-badge.term1 { background:rgba(188,140,255,0.15); color:var(--purple); }
   .agent-badge.term2 { background:rgba(63,185,80,0.15); color:var(--green); }
   .agent-badge.term3 { background:rgba(88,166,255,0.15); color:var(--accent); }
-.pane-close { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:12px; padding:0 4px; line-height:1; opacity:0; transition:opacity 0.15s; }
-.pane:hover .pane-close { opacity:1; }
-.pane-close:hover { color:var(--red,#f85149); }
-
-  .pane-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:13px; padding:2px 6px; border-radius:4px; transition:all 0.15s; }
+  .agent-badge.agent { background:rgba(57,211,83,0.15); color:var(--cyan); }
+  .agent-badge.browser { background:rgba(240,136,62,0.15); color:var(--orange); }
+  .pane-cwd { color:var(--text-muted); font-family:'Cascadia Code',monospace; font-size:10px; opacity:0.7; }
+  .pane-close-btn { background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:13px; padding:2px 6px; border-radius:4px; transition:all 0.15s; opacity:0.7; }
+  .pane-leaf:hover .pane-close-btn { opacity:1; }
   .pane-close-btn:hover { background:var(--red); color:#fff; }
 
   /* xterm fills the pane */
@@ -108,11 +115,9 @@
   .xterm-container .xterm-viewport::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
   .xterm-container .xterm-screen { height:100% !important; }
 
-  /* Resize handles */
-  .resize-h { width:5px; min-width:5px; cursor:col-resize; background:var(--border); transition:background 0.15s; flex-shrink:0; }
-  .resize-h:hover, .resize-h.active { background:var(--accent); }
-  .resize-v { height:5px; min-height:5px; cursor:row-resize; background:var(--border); transition:background 0.15s; flex-shrink:0; }
-  .resize-v:hover, .resize-v.active { background:var(--accent); }
+  /* Browser pane */
+  .browser-pane { flex:1; border:none; background:#fff; }
+  .browser-pane iframe { width:100%; height:100%; border:none; }
 
   /* Status bar */
   .status-bar { display:flex; align-items:center; justify-content:space-between; height:22px; padding:0 10px; background:var(--bg-secondary); border-top:1px solid var(--border); font-size:11px; color:var(--text-muted); flex-shrink:0; }
@@ -163,22 +168,10 @@
     </div>
   </div>
 
-  <!-- MAIN — just terminals, no mock content -->
+  <!-- MAIN — recursive split-pane canvas -->
   <div class="main">
-    <div class="pane-grid">
-      <!-- Single row: ONE big terminal pane -->
-      <div class="pane-row">
-        <div class="pane focused" id="pane-1">
-          <div class="pane-header">
-            <div class="pane-header-left">
-              <span class="agent-badge term1">Terminal 1</span>
-<span id="pane-1-cwd">S:\wmux-</span>
-</div>
-<button class="pane-close-btn" title="Close (Ctrl+W)" onclick="if(window.closeFocusedPane)window.closeFocusedPane()">✕</button>
-</div>
-          <div class="xterm-container" id="xterm-1"></div>
-        </div>
-      </div>
+    <div class="pane-grid" id="pane-grid">
+      <!-- Panes are created dynamically by panes.js -->
     </div>
 
     <!-- Status bar -->
@@ -191,12 +184,11 @@
         <span>│</span>
         <span><span class="kbd">Ctrl</span>+<span class="kbd">B</span> sidebar</span>
         <span>│</span>
-        <span><span class="kbd">Ctrl</span>+<span class="kbd">D</span> split</span>
+        <span><span class="kbd">Ctrl</span>+<span class="kbd">D</span> split · <span class="kbd">Ctrl</span>+<span class="kbd">W</span> close</span>
       </div>
     </div>
   </div>
 </div>
-
 <!-- Toast container -->
 <div id="toast-container"></div>
 

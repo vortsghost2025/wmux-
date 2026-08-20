@@ -270,6 +270,35 @@ function splitPane(direction) {
   }
 }
 
+function navigatePaneFocus(arrowKey) {
+  // Simple implementation: find adjacent panes based on direction
+  // This is a placeholder - full implementation would need spatial awareness
+  const currentFocused = document.querySelector('.pane-leaf.focused');
+  if (!currentFocused) return;
+  
+  const allPanes = Array.from(document.querySelectorAll('.pane-leaf'));
+  const currentIndex = allPanes.indexOf(currentFocused);
+  if (currentIndex === -1) return;
+  
+  let targetIndex = currentIndex;
+  if (arrowKey === 'ArrowRight' && currentIndex < allPanes.length - 1) {
+    targetIndex = currentIndex + 1;
+  } else if (arrowKey === 'ArrowLeft' && currentIndex > 0) {
+    targetIndex = currentIndex - 1;
+  } else if (arrowKey === 'ArrowDown' && currentIndex < allPanes.length - 1) {
+    targetIndex = currentIndex + 1;
+  } else if (arrowKey === 'ArrowUp' && currentIndex > 0) {
+    targetIndex = currentIndex - 1;
+  }
+  
+  if (targetIndex !== currentIndex && allPanes[targetIndex]) {
+    const leafId = allPanes[targetIndex].dataset.leafId;
+    if (window.PaneManager && leafId) {
+      window.PaneManager.focusLeaf(leafId);
+    }
+  }
+}
+
 function toggleSidebar() {
   state.sidebarVisible = !state.sidebarVisible;
   const sidebar = document.querySelector('.sidebar');
@@ -350,6 +379,18 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
     e.preventDefault();
     splitPane('down');
+    return;
+  }
+  // Ctrl+W — Close focused pane
+  if (e.ctrlKey && !e.shiftKey && (e.key === 'W' || e.key === 'w')) {
+    e.preventDefault();
+    if (window.closeFocusedPane) window.closeFocusedPane();
+    return;
+  }
+  // Alt+Arrow — Navigate between panes
+  if (e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+    e.preventDefault();
+    navigatePaneFocus(e.key);
     return;
   }
   // Ctrl+= / Ctrl++ — Increase font size
